@@ -23,4 +23,4 @@ echo ""
 echo "=== All pre-push checks passed ==="
 
 # Write sentinel for the push-ready hook (SHA-pinned so stale checks are rejected)
-git rev-parse HEAD > .pre-push-passed 2>/dev/null || true
+git rev-parse HEAD > "$(git rev-parse --git-dir)/.pre-push-passed" 2>/dev/null || true

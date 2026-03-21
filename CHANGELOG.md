@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.1.1 — 2026-03-21
+
+Bug fixes.
+
+- Fixed: `validate-commit-message` blocked heredoc-style commits — heredoc check now runs before `-m "..."` extraction, and sed uses `-n .../p` to avoid outputting the raw command on no-match
+- Fixed: `pre-push-checks.sh` wrote `.pre-push-passed` to the working tree — sentinel now lives in `.git/`, so it never appears as an untracked file in user projects
+
 ## 1.1.0 — 2026-03-20
 
 Configurable setup.

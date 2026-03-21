@@ -25,15 +25,15 @@ if echo "$COMMAND" | grep -qE '\-\-(amend|allow-empty-message)'; then
 fi
 
 # Extract the commit message from -m "..." or -m '...'
-# Handle both single and double quotes, and the heredoc pattern
+# Handle heredoc first — must check before -m "..." since heredoc also contains -m "
 MSG=""
-if echo "$COMMAND" | grep -qE '\-m[[:space:]]+"'; then
-  MSG=$(echo "$COMMAND" | sed -E 's/.*-m[[:space:]]+"([^"]+)".*/\1/')
-elif echo "$COMMAND" | grep -qE "\-m[[:space:]]+'"; then
-  MSG=$(echo "$COMMAND" | sed -E "s/.*-m[[:space:]]+'([^']+)'.*/\1/")
-elif echo "$COMMAND" | grep -q 'cat <<'; then
-  # Heredoc pattern — extract first line of the message
+if echo "$COMMAND" | grep -q 'cat <<'; then
+  # Heredoc pattern — extract first line of the message body
   MSG=$(echo "$COMMAND" | sed -n '/cat <</{n;p;}' | head -1 | sed 's/^[[:space:]]*//')
+elif echo "$COMMAND" | grep -qE '\-m[[:space:]]+"'; then
+  MSG=$(echo "$COMMAND" | sed -n -E 's/.*-m[[:space:]]+"([^"]+)".*/\1/p' | head -1)
+elif echo "$COMMAND" | grep -qE "\-m[[:space:]]+'"; then
+  MSG=$(echo "$COMMAND" | sed -n -E "s/.*-m[[:space:]]+'([^']+)'.*/\1/p" | head -1)
 fi
 
 # If we couldn't extract the message, allow it (don't block on parse failure)

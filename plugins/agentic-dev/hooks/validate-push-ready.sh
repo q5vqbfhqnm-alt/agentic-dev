@@ -28,7 +28,7 @@ if echo "$COMMAND" | grep -qE 'git\s+push\s+--(tags|delete|mirror)'; then
   exit 0
 fi
 
-SENTINEL=".pre-push-passed"
+SENTINEL="$(git rev-parse --git-dir 2>/dev/null)/.pre-push-passed"
 
 if [ ! -f "$SENTINEL" ]; then
   echo "BLOCKED: pre-push-checks.sh has not been run. Run it before pushing." >&2

@@ -1,5 +1,2 @@
-# Transient sentinel written by pre-push-checks.sh, read by validate-push-ready.sh
-.pre-push-passed
-
 # Local test suite — not part of the plugin, used for development only
 tests/
