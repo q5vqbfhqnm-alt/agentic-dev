@@ -1,5 +1,19 @@
 # Changelog
 
+## 1.2.0 — 2026-03-23
+
+Orchestrator agent and smart localhost gate.
+
+- Added: `orchestrator` agent — top-level state machine that owns the full spec → dev → review lifecycle with zero manual handoffs
+- Added: Smart localhost gate — auto-detects UI changes instead of asking the user
+- Added: Worktree-aware dev server — runs on port 3001 inside the worktree to avoid conflicts
+- Added: Spec sync — updates GitHub Issue ACs when localhost review changes scope
+- Added: Blocker classification — objective Codex findings auto-fixed, subjective ones require user confirmation
+- Changed: `dev` agent slimmed to implementation-only role (triage/review moved to orchestrator)
+- Changed: `review` agent inputs/outputs reference orchestrator instead of dev agent
+- Changed: Default agent changed from `dev` to `orchestrator`
+- Fixed: Inline Codex availability check removed from review and dev agents (already handled inside scripts)
+
 ## 1.1.1 — 2026-03-21
 
 Bug fixes.

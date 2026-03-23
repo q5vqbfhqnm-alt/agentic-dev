@@ -10,8 +10,8 @@
     {
       "name": "agentic-dev",
       "source": "./plugins/agentic-dev",
-      "description": "Agentic dev workflow: 3 agents (dev, spec, review) + 3 skills (build, test, ship) + Codex review gate",
-      "version": "1.1.1"
+      "description": "Agentic dev workflow: 4 agents (orchestrator, dev, spec, review) + 3 skills (build, test, ship) + Codex review gate",
+      "version": "1.2.0"
     }
   ]
 }

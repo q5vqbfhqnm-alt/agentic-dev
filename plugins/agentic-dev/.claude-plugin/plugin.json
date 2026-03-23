@@ -1,6 +1,6 @@
 {
   "name": "agentic-dev",
-  "version": "1.1.1",
+  "version": "1.2.0",
   "description": "Agentic dev workflow: spec → build → test → ship → review → merge. Includes independent Codex review gate.",
   "author": {
     "name": "q5vqbfhqnm-alt"
