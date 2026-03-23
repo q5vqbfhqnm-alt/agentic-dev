@@ -34,7 +34,7 @@ missing, the script will exit non-zero with a clear error message.
 
 ## Inputs
 
-You receive from the dev agent:
+You receive from the orchestrator:
 - `PR_NUMBER` — the PR to review
 - `SESSION_PATH` — `trivial` or `full`
 - `CODEX_SESSION_ID` — (optional, for re-review rounds)
@@ -124,9 +124,9 @@ Both CI green **and** `VERDICT: approved` are required to proceed.
 | CI | Codex | Action |
 |----|-------|--------|
 | green | approved | Proceed to rebase check |
-| green | blocked | Return findings to dev agent for fix |
-| failed | approved | Return CI failure to dev agent for fix |
-| failed | blocked | Return both to dev agent for fix |
+| green | blocked | Return findings to orchestrator for fix |
+| failed | approved | Return CI failure to orchestrator for fix |
+| failed | blocked | Return both to orchestrator for fix |
 | unknown | any | **STOP** — tell user, show PR URL, wait for explicit CI confirmation |
 
 **Max 3 fix attempts** — after 3 rounds, stop and escalate to the user.
@@ -176,7 +176,7 @@ If it fails, show the error and stop — do not retry without user input.
 
 ## Return format
 
-Return to the dev agent:
+Return to the orchestrator:
 - `VERDICT`: approved / blocked
 - `CI_STATUS`: green / failed / unknown
 - `MERGE_RESULT`: success / failure / not-attempted
