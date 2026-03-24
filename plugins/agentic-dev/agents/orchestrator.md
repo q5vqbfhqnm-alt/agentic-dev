@@ -104,10 +104,24 @@ The dev agent implements, tests, and opens a PR. It returns:
 
 ## Step 4: Review
 
+Read the session state file (if it exists) to check for a previous verdict:
+
+```bash
+HEAD_BRANCH=$(gh pr view $PR_NUMBER --json headRefName --jq '.headRefName')
+SAFE_BRANCH="${HEAD_BRANCH//\//--}"
+SESSION_FILE="$(git rev-parse --git-dir)/agentic-dev/session-${SAFE_BRANCH}.json"
+if [ -f "$SESSION_FILE" ]; then
+  CODEX_SESSION_ID=$(jq -r '.codex_session_id' "$SESSION_FILE")
+  REVIEW_ROUND=$(jq -r '.round' "$SESSION_FILE")
+  LAST_VERDICT=$(jq -r '.verdict' "$SESSION_FILE")
+fi
+```
+
 Spawn the **review agent** with:
 - `PR_NUMBER`
 - `SESSION_PATH`
 - `CODEX_SESSION_ID` (empty on first round)
+- `LAST_VERDICT` (from session file — if `approved`, review agent skips to merge gate)
 
 The review agent runs CI + Codex review + merge gate and returns:
 - `VERDICT`: `approved` or `blocked`
@@ -134,8 +148,14 @@ The review agent runs CI + Codex review + merge gate and returns:
 
 The review scripts persist state to `.git/agentic-dev/session-{branch}.json`
 after each review round. This file is the **authoritative source** for
-`CODEX_SESSION_ID` and the current round number — use it instead of relying
-on conversational context, which may be truncated in long sessions.
+`CODEX_SESSION_ID`, the current round number, and the last verdict — use it
+instead of relying on conversational context, which may be truncated in long
+sessions.
+
+**Important:** When `verdict` is `approved`, the scripts reset `round` to 0.
+This prevents stale round counters from a previous fix-review loop from
+blocking a new session that just needs to merge. The `round_completed` field
+preserves the actual last round number for diagnostics.
 
 ```bash
 # Read session state (returns empty fields if file is missing)

@@ -76,9 +76,17 @@ fi
 # Temp files — clean up on exit
 REVIEW_OUTPUT=$(mktemp)
 PROMPT_FILE=$(mktemp)
-CODEX_LOG=$(mktemp)
+if [ -n "${AGENTIC_DEV_CODEX_LOG_PATH:-}" ]; then
+  CODEX_LOG="$AGENTIC_DEV_CODEX_LOG_PATH"
+  mkdir -p "$(dirname "$CODEX_LOG")"
+  : > "$CODEX_LOG"
+  PRESERVE_CODEX_LOG=1
+else
+  CODEX_LOG=$(mktemp)
+  PRESERVE_CODEX_LOG="${AGENTIC_DEV_KEEP_CODEX_LOG:-0}"
+fi
 COMMENT_FILE=$(mktemp)
-trap 'rm -f "$REVIEW_OUTPUT" "$PROMPT_FILE" "$CODEX_LOG" "$COMMENT_FILE"' EXIT
+trap 'rm -f "$REVIEW_OUTPUT" "$PROMPT_FILE" "$COMMENT_FILE"; if [ "$PRESERVE_CODEX_LOG" != "1" ]; then rm -f "$CODEX_LOG"; fi' EXIT
 
 LINKED_ISSUES=()
 while IFS= read -r issue; do
@@ -139,6 +147,8 @@ PROMPT
 
 # Run re-review — resume session if available, fresh exec if not
 # codex exec resume accepts -o but not -s/--sandbox (sandbox inherited from original session).
+echo "Streaming Codex terminal output to: $CODEX_LOG"
+echo "Tip: tail -f \"$CODEX_LOG\" from another terminal to watch live."
 CODEX_FAILED=0
 if [ "$CODEX_SESSION_ID" != "none" ] && [ -n "$CODEX_SESSION_ID" ]; then
   $CODEX_CMD exec resume "$CODEX_SESSION_ID" -o "$REVIEW_OUTPUT" "$(cat "$PROMPT_FILE")" 2>&1 | tee "$CODEX_LOG" || CODEX_FAILED=$?
@@ -220,7 +230,8 @@ if mkdir -p "$_SESSION_DIR" 2>/dev/null; then
   "branch": "${HEAD_BRANCH}",
   "codex_session_id": "${CODEX_SESSION_ID:-none}",
   "verdict": "$(echo "$VERDICT_LINE" | sed 's/^VERDICT:[[:space:]]*//')",
-  "round": ${ROUND},
+  "round_completed": ${ROUND},
+  "round": $(if echo "$VERDICT_LINE" | grep -qi 'approved'; then echo 0; else echo "${ROUND}"; fi),
   "updated_at": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 }
 SESSIONJSON
