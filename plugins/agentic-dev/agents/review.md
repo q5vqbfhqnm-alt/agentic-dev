@@ -38,6 +38,30 @@ You receive from the orchestrator:
 - `PR_NUMBER` — the PR to review
 - `SESSION_PATH` — `trivial` or `full`
 - `CODEX_SESSION_ID` — (optional, for re-review rounds)
+- `LAST_VERDICT` — (optional) the verdict from a previous review session
+
+---
+
+## Step 0: Already-approved fast path
+
+If `LAST_VERDICT` is `approved` (from a previous session's review), **skip Codex
+review entirely** and go straight to the merge gate (Step 4). The review was
+already done — re-running it would waste a round and risk hitting the max-rounds
+limit from the previous session's counter.
+
+Verify the approval is still valid by checking the PR has an approved Codex
+review comment:
+
+```bash
+APPROVED_COMMENT=$(gh api "repos/$(gh repo view --json nameWithOwner --jq '.nameWithOwner')/issues/$PR_NUMBER/comments" \
+  --jq '[.[] | select(.body | test("<!-- agentic-dev:codex-review:v1 -->")) | select(.body | test("VERDICT:.*approved"; "i"))] | length')
+if [ "$APPROVED_COMMENT" -gt 0 ]; then
+  echo "Previous Codex review approved. Skipping to merge gate."
+  # Jump to Step 4 (merge gate)
+fi
+```
+
+If no approved comment is found, fall through to Step 1 (full review).
 
 ---
 

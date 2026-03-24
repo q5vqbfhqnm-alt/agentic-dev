@@ -47,9 +47,17 @@ fi
 # Temp files — clean up on exit (including failures due to set -e)
 REVIEW_OUTPUT=$(mktemp)
 PROMPT_FILE=$(mktemp)
-CODEX_LOG=$(mktemp)
+if [ -n "${AGENTIC_DEV_CODEX_LOG_PATH:-}" ]; then
+  CODEX_LOG="$AGENTIC_DEV_CODEX_LOG_PATH"
+  mkdir -p "$(dirname "$CODEX_LOG")"
+  : > "$CODEX_LOG"
+  PRESERVE_CODEX_LOG=1
+else
+  CODEX_LOG=$(mktemp)
+  PRESERVE_CODEX_LOG="${AGENTIC_DEV_KEEP_CODEX_LOG:-0}"
+fi
 COMMENT_FILE=$(mktemp)
-trap 'rm -f "$REVIEW_OUTPUT" "$PROMPT_FILE" "$CODEX_LOG" "$COMMENT_FILE"' EXIT
+trap 'rm -f "$REVIEW_OUTPUT" "$PROMPT_FILE" "$COMMENT_FILE"; if [ "$PRESERVE_CODEX_LOG" != "1" ]; then rm -f "$CODEX_LOG"; fi' EXIT
 
 # Build prompt — intentionally minimal. Two questions only.
 cat > "$PROMPT_FILE" <<PROMPT
@@ -94,6 +102,8 @@ PROMPT
 
 # Run Codex review with the focused trivial prompt
 # Capture terminal output (contains session ID) separately from -o file (review body)
+echo "Streaming Codex terminal output to: $CODEX_LOG"
+echo "Tip: tail -f \"$CODEX_LOG\" from another terminal to watch live."
 if ! $CODEX_CMD exec -s read-only -o "$REVIEW_OUTPUT" "$(cat "$PROMPT_FILE")" 2>&1 | tee "$CODEX_LOG"; then
   echo "ERROR: Codex exec failed (exit code $?)." >&2
   gh pr comment "$PR_NUMBER" --body "<!-- agentic-dev:codex-review:v1 -->
@@ -170,7 +180,8 @@ if mkdir -p "$_SESSION_DIR" 2>/dev/null; then
   "branch": "${HEAD_BRANCH}",
   "codex_session_id": "${CODEX_SESSION_ID:-none}",
   "verdict": "$(echo "$VERDICT_LINE" | sed 's/^VERDICT:[[:space:]]*//')",
-  "round": 1,
+  "round_completed": 1,
+  "round": $(if echo "$VERDICT_LINE" | grep -qi 'approved'; then echo 0; else echo 1; fi),
   "updated_at": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 }
 SESSIONJSON
