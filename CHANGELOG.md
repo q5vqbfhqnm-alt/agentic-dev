@@ -1,5 +1,18 @@
 # Changelog
 
+## 1.5.1 — 2026-03-24
+
+Fix stale review round counter blocking merges on already-approved PRs.
+
+### Review system
+- Fixed: Session file `round` resets to 0 when verdict is `approved` — prevents stale counters from a previous fix-review loop from blocking new sessions
+- Added: `round_completed` field in session file preserves actual round number for diagnostics
+- Added: Review agent Step 0 fast path — when `LAST_VERDICT=approved`, verifies approved Codex comment on PR and skips directly to merge gate
+- Changed: Orchestrator reads session file verdict before spawning review agent, passes `LAST_VERDICT` to enable fast path
+
+### Observability
+- Added: Codex terminal output streams to configurable `AGENTIC_DEV_CODEX_LOG_PATH` with `tail -f` hint for live monitoring
+
 ## 1.5.0 — 2026-03-24
 
 Build command auto-detection, leaner review prompts.
