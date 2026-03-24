@@ -22,8 +22,13 @@ You receive from the orchestrator:
 
 ## Enter worktree
 
+**Fetch before branching** — always sync the base ref so the worktree starts from the latest remote HEAD:
+```bash
+git fetch origin "$AGENTIC_DEV_BASE_BRANCH"
+```
+
 Use a worktree with a short name (e.g. `feature-admin-export`).
-**Branch from `$AGENTIC_DEV_BASE_BRANCH`** (default: `preview`), **never `main`** (unless hotfix — see build skill constraints).
+**Branch from `origin/$AGENTIC_DEV_BASE_BRANCH`** (default: `origin/preview`), **never `main`** (unless hotfix — see build skill constraints).
 
 **Symlink `.env.local`** into the worktree if it doesn't exist:
 ```bash

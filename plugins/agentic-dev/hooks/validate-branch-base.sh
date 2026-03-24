@@ -21,6 +21,33 @@ fi
 
 ALLOWED_BASES="${AGENTIC_DEV_BASE_BRANCH}|main|origin/${AGENTIC_DEV_BASE_BRANCH}|origin/main"
 
+# Check if a local base ref is behind its origin counterpart.
+# Blocks when the local ref exists but is strictly behind origin (i.e. not up-to-date).
+# Skips the check for origin/* refs (already remote) or when origin ref doesn't exist.
+check_stale_base() {
+  local base="$1"
+  # Skip if already an origin/ ref
+  case "$base" in origin/*) return 0 ;; esac
+
+  local origin_ref="origin/$base"
+  # Skip if origin ref doesn't exist locally (can't compare)
+  if ! git rev-parse --verify "$origin_ref" >/dev/null 2>&1; then
+    return 0
+  fi
+  # Skip if local ref doesn't exist (nothing to be stale)
+  if ! git rev-parse --verify "$base" >/dev/null 2>&1; then
+    return 0
+  fi
+
+  local behind
+  behind=$(git rev-list --count "$base".."$origin_ref" 2>/dev/null || echo 0)
+  if [ "$behind" -gt 0 ]; then
+    echo "BLOCKED: Local '$base' is $behind commit(s) behind '$origin_ref'. Run 'git fetch origin $base' first." >&2
+    return 1
+  fi
+  return 0
+}
+
 # git checkout -b <name> [base]  →  base is word 5 (if present)
 # git switch -c <name> [base]    →  base is word 5 (if present)
 if echo "$COMMAND" | grep -qE 'git\s+(checkout\s+-b|switch\s+-c)\s+'; then
@@ -36,6 +63,9 @@ if echo "$COMMAND" | grep -qE 'git\s+(checkout\s+-b|switch\s+-c)\s+'; then
 
   if ! echo "$BASE" | grep -qE "^($ALLOWED_BASES)$"; then
     echo "BLOCKED: Branch must be created from '${AGENTIC_DEV_BASE_BRANCH}' (or 'main' for hotfix). Got base: $BASE" >&2
+    exit 2
+  fi
+  if ! check_stale_base "$BASE"; then
     exit 2
   fi
   exit 0
@@ -65,6 +95,9 @@ if echo "$COMMAND" | grep -qE 'git\s+worktree\s+add\s+'; then
 
   if ! echo "$BASE" | grep -qE "^($ALLOWED_BASES)$"; then
     echo "BLOCKED: Worktree branch must be created from '${AGENTIC_DEV_BASE_BRANCH}' (or 'main' for hotfix). Got base: $BASE" >&2
+    exit 2
+  fi
+  if ! check_stale_base "$BASE"; then
     exit 2
   fi
   exit 0
