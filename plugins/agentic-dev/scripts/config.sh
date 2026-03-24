@@ -64,8 +64,18 @@ AGENTIC_DEV_CI_WORKFLOW="${AGENTIC_DEV_CI_WORKFLOW:-$(_cfg ciWorkflow)}"
 AGENTIC_DEV_CI_WORKFLOW="${AGENTIC_DEV_CI_WORKFLOW:-}"
 AGENTIC_DEV_CI_PATHS="${AGENTIC_DEV_CI_PATHS:-$(_cfg ciPaths)}"
 AGENTIC_DEV_CI_PATHS="${AGENTIC_DEV_CI_PATHS:-src/ app/ e2e/ package.json tsconfig.json}"
+# E2E tier: "full" paths trigger the full E2E suite, "smoke" paths trigger a
+# lightweight smoke run, and anything else means no E2E.
+# Both are grep -E regexes matched against changed file paths.
+AGENTIC_DEV_E2E_FULL_PATHS="${AGENTIC_DEV_E2E_FULL_PATHS:-$(_cfg e2eFullPaths)}"
+AGENTIC_DEV_E2E_FULL_PATHS="${AGENTIC_DEV_E2E_FULL_PATHS:-^(app/api/|src/api/|app/lib/|src/lib/|e2e/|tests/e2e/|.*auth|.*payment|.*middleware)}"
+AGENTIC_DEV_E2E_SMOKE_PATHS="${AGENTIC_DEV_E2E_SMOKE_PATHS:-$(_cfg e2eSmokePaths)}"
+AGENTIC_DEV_E2E_SMOKE_PATHS="${AGENTIC_DEV_E2E_SMOKE_PATHS:-^(app/|src/|pages/|components/).*\.(tsx|jsx|ts|js)$}"
+AGENTIC_DEV_E2E_SMOKE_CMD="${AGENTIC_DEV_E2E_SMOKE_CMD:-$(_cfg e2eSmokeCmd)}"
+AGENTIC_DEV_E2E_SMOKE_CMD="${AGENTIC_DEV_E2E_SMOKE_CMD:-}"
+# Legacy alias — still respected if the tiered paths aren't set
 AGENTIC_DEV_E2E_PATHS="${AGENTIC_DEV_E2E_PATHS:-$(_cfg e2ePaths)}"
-AGENTIC_DEV_E2E_PATHS="${AGENTIC_DEV_E2E_PATHS:-^(app/api/|app/lib/|src/api/|src/lib/|e2e/|tests/e2e/)}"
+AGENTIC_DEV_E2E_PATHS="${AGENTIC_DEV_E2E_PATHS:-}"
 
 # ── Review configuration ─────────────────────────────────────────────────
 AGENTIC_DEV_MAX_REVIEW_ROUNDS="${AGENTIC_DEV_MAX_REVIEW_ROUNDS:-$(_cfg maxReviewRounds)}"

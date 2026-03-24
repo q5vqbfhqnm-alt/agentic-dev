@@ -28,14 +28,25 @@ PR_BODY_RAW=$(echo "$PR_DATA" | jq -r '.body')
 MERGEABLE=$(echo "$PR_DATA" | jq -r '.mergeable')
 SAFE_TITLE=$(echo "$PR_TITLE" | sed 's/<[^>]*>//g')
 
-# Determine if full E2E is needed based on which files the PR touches.
-# Set AGENTIC_DEV_E2E_PATHS to a grep -E regex matching E2E-sensitive paths
-# in your project. Defaults to common patterns.
-E2E_PATHS="$AGENTIC_DEV_E2E_PATHS"
+# Determine E2E tier based on which files the PR touches.
+# Tiers: full > smoke > none. Highest tier wins.
 CHANGED_FILES=$(git diff --name-only "origin/$BASE_BRANCH"...HEAD 2>/dev/null || true)
-E2E_REQUIRED="false"
-if echo "$CHANGED_FILES" | grep -qE "$E2E_PATHS"; then
-  E2E_REQUIRED="true"
+E2E_TIER="none"
+
+if [ -n "$CHANGED_FILES" ]; then
+  # Legacy: if AGENTIC_DEV_E2E_PATHS is set (old config), use binary full/none
+  if [ -n "$AGENTIC_DEV_E2E_PATHS" ]; then
+    if echo "$CHANGED_FILES" | grep -qE "$AGENTIC_DEV_E2E_PATHS"; then
+      E2E_TIER="full"
+    fi
+  else
+    # Tiered detection: check full paths first, then smoke
+    if echo "$CHANGED_FILES" | grep -qE "$AGENTIC_DEV_E2E_FULL_PATHS"; then
+      E2E_TIER="full"
+    elif echo "$CHANGED_FILES" | grep -qE "$AGENTIC_DEV_E2E_SMOKE_PATHS"; then
+      E2E_TIER="smoke"
+    fi
+  fi
 fi
 
 FAILED=0
@@ -114,20 +125,28 @@ else
   fi
 fi
 
-# 2. Full E2E verified (if diff touches E2E-sensitive paths)
-#    The E2E command is project-specific. Set AGENTIC_DEV_E2E_CMD in the
-#    consuming repo's environment.
-E2E_CMD="$AGENTIC_DEV_E2E_CMD"
-if [ "$E2E_REQUIRED" = "true" ]; then
-  echo "2. Diff touches E2E-sensitive paths — running full E2E locally..."
-  if eval "$E2E_CMD"; then
+# 2. E2E verification (tiered: none / smoke / full)
+#    The E2E command is project-specific. Set AGENTIC_DEV_E2E_CMD and
+#    optionally AGENTIC_DEV_E2E_SMOKE_CMD in config.
+if [ "$E2E_TIER" = "full" ]; then
+  echo "2. Diff touches core paths — running full E2E..."
+  if eval "$AGENTIC_DEV_E2E_CMD"; then
     echo "   Full E2E passed"
   else
     echo "   Full E2E failed"
     FAILED=1
   fi
+elif [ "$E2E_TIER" = "smoke" ]; then
+  SMOKE_CMD="${AGENTIC_DEV_E2E_SMOKE_CMD:-$AGENTIC_DEV_E2E_CMD}"
+  echo "2. Diff touches UI/app paths — running smoke E2E..."
+  if eval "$SMOKE_CMD"; then
+    echo "   Smoke E2E passed"
+  else
+    echo "   Smoke E2E failed"
+    FAILED=1
+  fi
 else
-  echo "2. E2E not required — skipping full suite"
+  echo "2. E2E not required — no E2E-sensitive paths changed"
 fi
 
 # 3. PR is mergeable (no conflicts)
