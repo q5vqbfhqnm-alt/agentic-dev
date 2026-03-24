@@ -6,10 +6,12 @@
 # Resolution order (highest wins):
 #   1. Environment variable  (e.g. export AGENTIC_DEV_E2E_CMD="…")
 #   2. Project config file   (.claude/agentic-dev.json in the repo root)
-#   3. Built-in default      (hardcoded below)
+#   3. Auto-detected from package.json scripts (build commands only)
+#   4. Built-in default      (hardcoded below)
 #
-# The project config file lets teams commit settings per-repo so every
-# developer and agent gets the same values without shell setup.
+# The project config file is for project-identity settings (base branch,
+# CI workflow, paths, templates). Build/E2E commands are auto-detected
+# from package.json — do NOT store them in .claude/agentic-dev.json.
 
 # ── Project config file ─────────────────────────────────────────────────────
 # Locate the repo root (works inside worktrees too).
@@ -21,6 +23,20 @@ _cfg() {
   if [ -n "$_AGENTIC_DEV_PROJECT_CONFIG" ] && [ -f "$_AGENTIC_DEV_PROJECT_CONFIG" ]; then
     jq -r --arg k "$1" '.[$k] // empty' "$_AGENTIC_DEV_PROJECT_CONFIG" 2>/dev/null || true
   fi
+}
+
+# _detect_pkg_script <script-name> ...
+# Returns the first matching npm script name found in package.json, or empty.
+# Usage: CMD=$(_detect_pkg_script "test:e2e:full:local" "test:e2e" "e2e")
+_detect_pkg_script() {
+  local pkg="${_AGENTIC_DEV_REPO_ROOT:+$_AGENTIC_DEV_REPO_ROOT/package.json}"
+  [ -f "$pkg" ] || return 0
+  for script in "$@"; do
+    if jq -e --arg s "$script" '.scripts[$s]' "$pkg" >/dev/null 2>&1; then
+      echo "npm run $script"
+      return
+    fi
+  done
 }
 
 _agentic_dev_default_changelog_path() {
@@ -44,18 +60,24 @@ AGENTIC_DEV_PROTECTED_BRANCHES="${AGENTIC_DEV_PROTECTED_BRANCHES:-$(_cfg protect
 AGENTIC_DEV_PROTECTED_BRANCHES="${AGENTIC_DEV_PROTECTED_BRANCHES:-main|${AGENTIC_DEV_BASE_BRANCH}}"
 
 # ── Build system commands ───────────────────────────────────────────────────
-AGENTIC_DEV_TEST_CMD="${AGENTIC_DEV_TEST_CMD:-$(_cfg testCmd)}"
+# Auto-detected from package.json scripts, then hardcoded defaults.
+# Environment variables always win.
+AGENTIC_DEV_TEST_CMD="${AGENTIC_DEV_TEST_CMD:-$(_detect_pkg_script "test")}"
 AGENTIC_DEV_TEST_CMD="${AGENTIC_DEV_TEST_CMD:-npm test}"
-AGENTIC_DEV_LINT_CMD="${AGENTIC_DEV_LINT_CMD:-$(_cfg lintCmd)}"
+AGENTIC_DEV_LINT_CMD="${AGENTIC_DEV_LINT_CMD:-$(_detect_pkg_script "lint")}"
 AGENTIC_DEV_LINT_CMD="${AGENTIC_DEV_LINT_CMD:-npm run lint}"
-AGENTIC_DEV_BUILD_CMD="${AGENTIC_DEV_BUILD_CMD:-$(_cfg buildCmd)}"
+AGENTIC_DEV_BUILD_CMD="${AGENTIC_DEV_BUILD_CMD:-$(_detect_pkg_script "build")}"
 AGENTIC_DEV_BUILD_CMD="${AGENTIC_DEV_BUILD_CMD:-npm run build}"
-AGENTIC_DEV_INSTALL_CMD="${AGENTIC_DEV_INSTALL_CMD:-$(_cfg installCmd)}"
 AGENTIC_DEV_INSTALL_CMD="${AGENTIC_DEV_INSTALL_CMD:-npm install}"
-AGENTIC_DEV_DEV_CMD="${AGENTIC_DEV_DEV_CMD:-$(_cfg devCmd)}"
+AGENTIC_DEV_DEV_CMD="${AGENTIC_DEV_DEV_CMD:-$(_detect_pkg_script "dev")}"
 AGENTIC_DEV_DEV_CMD="${AGENTIC_DEV_DEV_CMD:-npm run dev}"
-AGENTIC_DEV_E2E_CMD="${AGENTIC_DEV_E2E_CMD:-$(_cfg e2eCmd)}"
+
+# E2E: probe for common script names in decreasing specificity
+AGENTIC_DEV_E2E_CMD="${AGENTIC_DEV_E2E_CMD:-$(_detect_pkg_script "test:e2e:full:local" "test:e2e:full" "test:e2e" "e2e")}"
 AGENTIC_DEV_E2E_CMD="${AGENTIC_DEV_E2E_CMD:-npm run test:e2e}"
+AGENTIC_DEV_E2E_SMOKE_CMD="${AGENTIC_DEV_E2E_SMOKE_CMD:-$(_detect_pkg_script "test:e2e:smoke" "e2e:smoke")}"
+AGENTIC_DEV_E2E_SMOKE_CMD="${AGENTIC_DEV_E2E_SMOKE_CMD:-}"
+
 AGENTIC_DEV_CHANGELOG_PATH="${AGENTIC_DEV_CHANGELOG_PATH:-$(_cfg changelogPath)}"
 AGENTIC_DEV_CHANGELOG_PATH="${AGENTIC_DEV_CHANGELOG_PATH:-$(_agentic_dev_default_changelog_path)}"
 
@@ -71,8 +93,6 @@ AGENTIC_DEV_E2E_FULL_PATHS="${AGENTIC_DEV_E2E_FULL_PATHS:-$(_cfg e2eFullPaths)}"
 AGENTIC_DEV_E2E_FULL_PATHS="${AGENTIC_DEV_E2E_FULL_PATHS:-^(app/api/|src/api/|app/lib/|src/lib/|e2e/|tests/e2e/|.*auth|.*payment|.*middleware)}"
 AGENTIC_DEV_E2E_SMOKE_PATHS="${AGENTIC_DEV_E2E_SMOKE_PATHS:-$(_cfg e2eSmokePaths)}"
 AGENTIC_DEV_E2E_SMOKE_PATHS="${AGENTIC_DEV_E2E_SMOKE_PATHS:-^(app/|src/|pages/|components/).*\.(tsx|jsx|ts|js)$}"
-AGENTIC_DEV_E2E_SMOKE_CMD="${AGENTIC_DEV_E2E_SMOKE_CMD:-$(_cfg e2eSmokeCmd)}"
-AGENTIC_DEV_E2E_SMOKE_CMD="${AGENTIC_DEV_E2E_SMOKE_CMD:-}"
 # Legacy alias — still respected if the tiered paths aren't set
 AGENTIC_DEV_E2E_PATHS="${AGENTIC_DEV_E2E_PATHS:-$(_cfg e2ePaths)}"
 AGENTIC_DEV_E2E_PATHS="${AGENTIC_DEV_E2E_PATHS:-}"

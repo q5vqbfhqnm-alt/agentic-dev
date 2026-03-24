@@ -84,35 +84,34 @@ All hooks hard-fail when `jq` is missing and log blocked commands to `.git/agent
 
 ## Configuration
 
-All settings are configurable via environment variables or a project config file (`.claude/agentic-dev.json`). Resolution order: env var > project config > built-in default.
+Build and E2E commands are auto-detected from `package.json` scripts. Project-identity settings (branch, CI, paths, templates) go in `.claude/agentic-dev.json`. Environment variables always take precedence.
+
+Resolution order: env var > project config > `package.json` auto-detection > built-in default.
 
 ```json
 {
   "baseBranch": "develop",
-  "testCmd": "make test",
-  "lintCmd": "make lint",
-  "buildCmd": "make build",
-  "e2eCmd": "npm run test:e2e:full:local",
-  "e2eSmokeCmd": "npm run test:e2e:smoke"
+  "ciWorkflow": "CI",
+  "maxReviewRounds": 3
 }
 ```
 
 | Variable | Default | Purpose |
 |----------|---------|---------|
 | `AGENTIC_DEV_BASE_BRANCH` | `preview` | Branch for feature branches and PR targets |
-| `AGENTIC_DEV_TEST_CMD` | `npm test` | Test command |
-| `AGENTIC_DEV_LINT_CMD` | `npm run lint` | Lint command |
-| `AGENTIC_DEV_BUILD_CMD` | `npm run build` | Build command |
+| `AGENTIC_DEV_TEST_CMD` | Auto-detected / `npm test` | Test command |
+| `AGENTIC_DEV_LINT_CMD` | Auto-detected / `npm run lint` | Lint command |
+| `AGENTIC_DEV_BUILD_CMD` | Auto-detected / `npm run build` | Build command |
 | `AGENTIC_DEV_INSTALL_CMD` | `npm install` | Dependency install for localhost mode |
-| `AGENTIC_DEV_DEV_CMD` | `npm run dev` | Dev server for localhost mode |
-| `AGENTIC_DEV_E2E_CMD` | `npm run test:e2e` | Full E2E command |
-| `AGENTIC_DEV_E2E_SMOKE_CMD` | Falls back to E2E_CMD | Smoke E2E command |
+| `AGENTIC_DEV_DEV_CMD` | Auto-detected / `npm run dev` | Dev server for localhost mode |
+| `AGENTIC_DEV_E2E_CMD` | Auto-detected / `npm run test:e2e` | Full E2E command (probes `test:e2e:full:local`, `test:e2e:full`, `test:e2e`, `e2e`) |
+| `AGENTIC_DEV_E2E_SMOKE_CMD` | Auto-detected / falls back to E2E_CMD | Smoke E2E command (probes `test:e2e:smoke`, `e2e:smoke`) |
 | `AGENTIC_DEV_CI_WORKFLOW` | Auto-discovered | GitHub Actions workflow name |
 | `AGENTIC_DEV_MAX_REVIEW_ROUNDS` | `3` | Max re-review rounds before escalating |
 | `AGENTIC_DEV_CHANGELOG_PATH` | Auto-detected | CHANGELOG file path |
 | `AGENTIC_DEV_ADR_PATH` | Not set | Architecture decision records file |
 
-Non-npm projects: set the test/lint/build commands to match your stack. The init script suggests values for Make, Cargo, Go, and Python.
+Non-npm projects: set the test/lint/build/E2E commands via env vars. The init script suggests values for Make, Cargo, Go, and Python.
 
 ### Path-aware checks
 
