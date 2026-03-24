@@ -139,7 +139,10 @@ on conversational context, which may be truncated in long sessions.
 
 ```bash
 # Read session state (returns empty fields if file is missing)
-SESSION_FILE="$(git rev-parse --git-dir)/agentic-dev/session-${BRANCH}.json"
+# Branch names with / are sanitized to -- in the filename (e.g. fix/foo → fix--foo)
+HEAD_BRANCH=$(gh pr view $PR_NUMBER --json headRefName --jq '.headRefName')
+SAFE_BRANCH="${HEAD_BRANCH//\//--}"
+SESSION_FILE="$(git rev-parse --git-dir)/agentic-dev/session-${SAFE_BRANCH}.json"
 if [ -f "$SESSION_FILE" ]; then
   CODEX_SESSION_ID=$(jq -r '.codex_session_id' "$SESSION_FILE")
   REVIEW_ROUND=$(jq -r '.round' "$SESSION_FILE")

@@ -33,7 +33,6 @@ INPUT=$(cat)
 COMMAND=$(echo "$INPUT" | jq -r '.tool_input.command // empty')
 
 if [ -z "$COMMAND" ]; then
-  _hook_log "allowed" "cmd=<non-bash>"
   exit 0
 fi
 
@@ -42,13 +41,11 @@ _CMD_SHORT="${COMMAND:0:120}"
 
 # Only intercept git push commands
 if ! echo "$COMMAND" | grep -qE 'git\s+push'; then
-  _hook_log "allowed" "reason=not-push cmd=$_CMD_SHORT"
   exit 0
 fi
 
 # Allow push --tags, push --delete, and other non-code pushes
 if echo "$COMMAND" | grep -qE 'git\s+push\s+--(tags|delete|mirror)'; then
-  _hook_log "allowed" "reason=non-code-push cmd=$_CMD_SHORT"
   exit 0
 fi
 
@@ -71,5 +68,4 @@ if [ "$SENTINEL_SHA" != "$CURRENT_SHA" ]; then
   exit 2
 fi
 
-_hook_log "allowed" "cmd=$_CMD_SHORT"
 exit 0

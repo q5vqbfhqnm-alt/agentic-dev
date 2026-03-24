@@ -34,7 +34,6 @@ INPUT=$(cat)
 COMMAND=$(echo "$INPUT" | jq -r '.tool_input.command // empty')
 
 if [ -z "$COMMAND" ]; then
-  _hook_log "allowed" "cmd=<non-bash>"
   exit 0
 fi
 
@@ -80,7 +79,6 @@ if echo "$COMMAND" | grep -qE 'git\s+(checkout\s+-b|switch\s+-c)\s+'; then
 
   # No explicit base (only 4 words) → allow (defaults to HEAD)
   if [ "$WORD_COUNT" -le 4 ] || [ -z "$BASE" ]; then
-    _hook_log "allowed" "reason=no-explicit-base cmd=$_CMD_SHORT"
     exit 0
   fi
 
@@ -93,7 +91,6 @@ if echo "$COMMAND" | grep -qE 'git\s+(checkout\s+-b|switch\s+-c)\s+'; then
     _hook_log "blocked" "reason=stale-base base=$BASE cmd=$_CMD_SHORT"
     exit 2
   fi
-  _hook_log "allowed" "base=$BASE cmd=$_CMD_SHORT"
   exit 0
 fi
 
@@ -104,7 +101,6 @@ fi
 if echo "$COMMAND" | grep -qE 'git\s+worktree\s+add\s+'; then
   # Only check if -b is present (creating a new branch)
   if ! echo "$COMMAND" | grep -qE '\s-b\s'; then
-    _hook_log "allowed" "reason=worktree-no-branch cmd=$_CMD_SHORT"
     exit 0
   fi
 
@@ -117,7 +113,6 @@ if echo "$COMMAND" | grep -qE 'git\s+worktree\s+add\s+'; then
 
   # Only path, no base → allow (defaults to HEAD)
   if [ "$ARG_COUNT" -le 1 ] || [ -z "$BASE" ]; then
-    _hook_log "allowed" "reason=worktree-no-explicit-base cmd=$_CMD_SHORT"
     exit 0
   fi
 
@@ -130,9 +125,7 @@ if echo "$COMMAND" | grep -qE 'git\s+worktree\s+add\s+'; then
     _hook_log "blocked" "reason=worktree-stale-base base=$BASE cmd=$_CMD_SHORT"
     exit 2
   fi
-  _hook_log "allowed" "base=$BASE cmd=$_CMD_SHORT"
   exit 0
 fi
 
-_hook_log "allowed" "reason=no-branch-cmd cmd=$_CMD_SHORT"
 exit 0
