@@ -46,6 +46,23 @@ The plugin assumes your project has these in place. All are configurable:
 
 **Non-npm projects:** Set `AGENTIC_DEV_TEST_CMD`, `AGENTIC_DEV_LINT_CMD`, and `AGENTIC_DEV_BUILD_CMD` to match your build system. The init script will suggest values for Make, Cargo, Go, and Python projects.
 
+### Project config file
+
+Instead of exporting environment variables, you can commit a `.claude/agentic-dev.json` to your repo. All settings from the table above are supported using camelCase keys. Environment variables still take precedence.
+
+```json
+{
+  "baseBranch": "develop",
+  "e2eCmd": "npm run test:e2e:full:local",
+  "e2eSmokeCmd": "npm run test:e2e:smoke",
+  "testCmd": "make test",
+  "lintCmd": "make lint",
+  "buildCmd": "make build"
+}
+```
+
+Resolution order: environment variable > project config file > built-in default.
+
 ## Usage
 
 The plugin sets `orchestrator` as the default agent. Start a session with:
@@ -73,7 +90,7 @@ review agent (isolated, no Write/Edit tools)
   ↓
 blocked? → dev fixes → push → re-review (max 3 cycles)
   ↓
-approved → merge gate (CI + rebase + E2E) → squash-merge
+approved → merge gate (CI + rebase + E2E none/smoke/full) → squash-merge
 ```
 
 ### Trivial vs full path
@@ -111,7 +128,7 @@ Four `PreToolUse` hooks fire on every Bash command while the plugin is active:
 | Hook | Enforces |
 |------|----------|
 | `validate-no-self-review` | Blocks direct PR review/comment commands — reviews must go through Codex scripts |
-| `validate-branch-base` | Branches must be created from base branch (or `main` for hotfix) |
+| `validate-branch-base` | Branches must be created from base branch (or `main` for hotfix); rejects stale local refs behind origin |
 | `validate-push-ready` | `git push` blocked unless `pre-push-checks.sh` passed on current HEAD |
 | `validate-commit-message` | Commit messages must match `type(scope): description` |
 
@@ -130,14 +147,42 @@ All configuration is through environment variables. Defaults are defined in [`sc
 | `AGENTIC_DEV_BUILD_CMD` | No | `npm run build` | Build command for pre-push checks |
 | `AGENTIC_DEV_INSTALL_CMD` | No | `npm install` | Dependency install command for localhost mode |
 | `AGENTIC_DEV_DEV_CMD` | No | `npm run dev` | Dev server command for localhost mode |
-| `AGENTIC_DEV_E2E_CMD` | No | `npm run test:e2e` | E2E test command for merge gate |
-| `AGENTIC_DEV_CHANGELOG_PATH` | No | Auto-detected (`docs/CHANGELOG.md` or `CHANGELOG.md`) | CHANGELOG file updated after merge |
+| `AGENTIC_DEV_E2E_CMD` | No | `npm run test:e2e` | Full E2E test command for merge gate |
+| `AGENTIC_DEV_E2E_SMOKE_CMD` | No | Falls back to `E2E_CMD` | Smoke E2E command (lighter than full) |
+| `AGENTIC_DEV_E2E_FULL_PATHS` | No | Auth, API, payment, middleware paths | Grep regex — files that trigger full E2E |
+| `AGENTIC_DEV_E2E_SMOKE_PATHS` | No | UI/app source files | Grep regex — files that trigger smoke E2E |
+| `AGENTIC_DEV_CHANGELOG_PATH` | No | Auto-detected | CHANGELOG file updated after merge |
 | `AGENTIC_DEV_CI_WORKFLOW` | No | Auto-discovered | GitHub Actions workflow name for CI |
 | `AGENTIC_DEV_CI_PATHS` | No | `src/ app/ e2e/ package.json tsconfig.json` | Path prefixes for CI-sensitive file detection |
-| `AGENTIC_DEV_E2E_PATHS` | No | `^(app/api/\|src/api/\|e2e/\|tests/e2e/)` | Grep regex for E2E-sensitive paths |
+| `AGENTIC_DEV_MAX_REVIEW_ROUNDS` | No | `3` | Max Codex re-review rounds before escalating |
 | `AGENTIC_DEV_ADR_PATH` | No | Not set (skipped) | Architecture decision records file |
 | `AGENTIC_DEV_ISSUE_TEMPLATES` | No | `.github/ISSUE_TEMPLATE/` | Issue template directory for spec agent |
 | `AGENTIC_DEV_PR_TEMPLATE` | No | `.github/pull_request_template.md` | PR template path |
+
+### Path-aware pre-push checks
+
+Pre-push checks diff against the base branch and skip steps that can't be affected by the changed files:
+
+| Changed files | Test | Lint | Build |
+|---------------|------|------|-------|
+| Docs, markdown, assets | skip | skip | skip |
+| Test files, configs | run | run | skip |
+| Style files (CSS, SVG, images) | skip | run | run |
+| Unknown / unmatched | run | run | run |
+
+The default is conservative: unknown file types always run the full stack. Path patterns are configurable via `AGENTIC_DEV_SKIP_ALL_PATHS`, `AGENTIC_DEV_SKIP_BUILD_PATHS`, and `AGENTIC_DEV_SKIP_TEST_PATHS`.
+
+### Tiered E2E
+
+The merge gate routes E2E tests into three tiers based on which files changed:
+
+| Tier | Triggers on | Command |
+|------|-------------|---------|
+| **full** | Auth, API, payment, middleware, core library paths | `AGENTIC_DEV_E2E_CMD` |
+| **smoke** | UI/app source files (`.tsx`, `.jsx`, `.ts`, `.js`) | `AGENTIC_DEV_E2E_SMOKE_CMD` (falls back to full) |
+| **none** | Docs, config, test-only changes | Skipped |
+
+Set `AGENTIC_DEV_E2E_SMOKE_CMD` to a lighter test command (e.g., `npm run test:e2e:smoke`) to save time on UI-only changes while keeping full coverage on core paths.
 
 ### Settings
 

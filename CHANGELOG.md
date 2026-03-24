@@ -1,5 +1,43 @@
 # Changelog
 
+## 1.3.0 — 2026-03-24
+
+Path-aware checks, tiered E2E, hardened merge/review workflow.
+
+### Performance
+- Added: Path-aware pre-push checks — skips test/lint/build when changed files can't affect them (docs skip everything, test files skip build, style files skip tests)
+- Added: Tiered E2E routing (none/smoke/full) — UI-only changes run smoke E2E, core paths run full, docs/config skip entirely
+- Changed: `--local-only` cleanup skips remote refresh and GitHub lookups for faster startup (~0.2s)
+
+### Workflow reliability
+- Added: Stale base detection — `validate-branch-base` hook rejects local refs behind origin
+- Added: Dev agent fetches before worktree creation, branches from `origin/$BASE_BRANCH`
+- Added: Auto-symlink `.env`, `.env.local`, `.env.development.local`, `.env.test.local` into worktrees
+- Added: Project-level config file (`.claude/agentic-dev.json`) — commit settings per-repo
+- Added: `ci-watch.sh` — standalone CI polling script replacing inline prompt loops
+- Added: Unified CI workflow discovery (`agentic_dev_discover_ci_workflow`) used by merge-gate and ci-watch
+- Added: CHANGELOG path auto-detection (`docs/CHANGELOG.md` or `CHANGELOG.md`)
+- Changed: Merge gate merges first, then commits CHANGELOG to base branch (eliminates race between concurrent gates)
+- Changed: Merge gate retries UNKNOWN mergeability (3× with 5s delay)
+- Changed: Merge gate polls in-progress CI runs (up to 10 min) instead of instant-failing
+- Changed: Merge gate auto-rebases with `--force-with-lease` on conflicts
+- Changed: Merge gate reuses PR metadata in single API call
+- Changed: Review agent pushes with `--force-with-lease` after rebase
+- Changed: Review agent removed duplicate rebase step (merge gate handles it)
+
+### Review system
+- Added: Max review round guard in `codex-re-review.sh` (rejects rounds above `AGENTIC_DEV_MAX_REVIEW_ROUNDS`)
+- Added: E2E failure triage guidance in review agent (flaky vs regression vs pre-existing)
+- Added: Review/merge-gate boundary clarification — gate is authoritative for CI, mergeability, E2E
+- Added: Reduced-confidence flag on session resume fallback
+- Changed: All review scripts use `--body-file` instead of inline `--body` (prevents truncation)
+- Changed: Review scripts delete previous agentic-dev comments before posting (eliminates noise)
+
+### DX
+- Changed: Pre-push checks report which step failed with the failing command
+- Changed: `cleanup-branches.sh` batches PR API calls (2 calls instead of N)
+- Changed: Cleanup skips squash-merge PR lookup in local-only mode
+
 ## 1.2.0 — 2026-03-23
 
 Orchestrator agent and smart localhost gate.
