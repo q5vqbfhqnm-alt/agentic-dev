@@ -29,7 +29,6 @@ INPUT=$(cat)
 COMMAND=$(echo "$INPUT" | jq -r '.tool_input.command // empty')
 
 if [ -z "$COMMAND" ]; then
-  _hook_log "allowed" "cmd=<non-bash>"
   exit 0
 fi
 
@@ -38,13 +37,11 @@ _CMD_SHORT="${COMMAND:0:120}"
 
 # Only intercept git commit commands
 if ! echo "$COMMAND" | grep -qE 'git\s+commit'; then
-  _hook_log "allowed" "reason=not-commit cmd=$_CMD_SHORT"
   exit 0
 fi
 
 # Skip amend, merge commits, and commits with --allow-empty-message
 if echo "$COMMAND" | grep -qE '\-\-(amend|allow-empty-message)'; then
-  _hook_log "allowed" "reason=amend-or-merge cmd=$_CMD_SHORT"
   exit 0
 fi
 
@@ -62,7 +59,6 @@ fi
 
 # If we couldn't extract the message, allow it (don't block on parse failure)
 if [ -z "$MSG" ]; then
-  _hook_log "allowed" "reason=unparseable-msg cmd=$_CMD_SHORT"
   exit 0
 fi
 
@@ -78,5 +74,4 @@ if ! echo "$FIRST_LINE" | grep -qE '^(feat|fix|refactor|docs|test|chore)\([^)]+\
   exit 2
 fi
 
-_hook_log "allowed" "msg=$FIRST_LINE"
 exit 0

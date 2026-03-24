@@ -28,7 +28,6 @@ INPUT=$(cat)
 COMMAND=$(echo "$INPUT" | jq -r '.tool_input.command // empty')
 
 if [ -z "$COMMAND" ]; then
-  _hook_log "allowed" "cmd=<non-bash>"
   exit 0
 fi
 
@@ -67,5 +66,4 @@ if echo "$COMMAND" | grep -qE 'codex\s+review'; then
   exit 2
 fi
 
-_hook_log "allowed" "cmd=$_CMD_SHORT"
 exit 0

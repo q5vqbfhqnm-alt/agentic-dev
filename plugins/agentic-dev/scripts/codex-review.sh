@@ -198,9 +198,13 @@ echo "CODEX_SESSION_ID=${CODEX_SESSION_ID:-none}"
 # Persist session state to .git/agentic-dev/session-{branch}.json (best-effort).
 # The orchestrator and re-review script can read this as the authoritative source
 # for session ID, verdict, and round number across context boundaries.
+# Persist session state to .git/agentic-dev/session-{branch}.json (best-effort).
+# Sanitize branch name: replace / with -- so fix/foo becomes session-fix--foo.json
+# (/ in the filename would create subdirectories that don't exist).
 _SESSION_DIR="$(git rev-parse --git-dir 2>/dev/null)/agentic-dev"
+_SAFE_BRANCH="${HEAD_BRANCH//\//--}"
 if mkdir -p "$_SESSION_DIR" 2>/dev/null; then
-  _SESSION_FILE="$_SESSION_DIR/session-${HEAD_BRANCH}.json"
+  _SESSION_FILE="$_SESSION_DIR/session-${_SAFE_BRANCH}.json"
   cat > "$_SESSION_FILE" <<SESSIONJSON
 {
   "pr_number": ${PR_NUMBER},

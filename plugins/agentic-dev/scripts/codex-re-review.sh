@@ -175,9 +175,11 @@ echo ""
 echo "Codex verdict: $VERDICT_LINE"
 
 # Persist session state to .git/agentic-dev/session-{branch}.json (best-effort).
+# Sanitize branch name: replace / with -- so fix/foo becomes session-fix--foo.json
 _SESSION_DIR="$(git rev-parse --git-dir 2>/dev/null)/agentic-dev"
+_SAFE_BRANCH="${HEAD_BRANCH//\//--}"
 if mkdir -p "$_SESSION_DIR" 2>/dev/null; then
-  _SESSION_FILE="$_SESSION_DIR/session-${HEAD_BRANCH}.json"
+  _SESSION_FILE="$_SESSION_DIR/session-${_SAFE_BRANCH}.json"
   cat > "$_SESSION_FILE" <<SESSIONJSON
 {
   "pr_number": ${PR_NUMBER},
