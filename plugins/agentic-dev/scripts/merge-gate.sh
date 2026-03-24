@@ -79,8 +79,30 @@ else
     --jq '[.[] | select(.conclusion=="success")][0] // empty')
   CI_SHA=$(echo "$CI_RUN" | jq -r '.headSha // empty')
 
+  # If no green run yet, check if CI is still running and wait for it
   if [ -z "$CI_SHA" ]; then
-    echo "1. CI has never passed on this branch"
+    IN_PROGRESS=$(gh run list --branch "$BRANCH" \
+      --workflow "$CI_WORKFLOW" --repo "$REPO" -L 1 --json status,databaseId \
+      --jq '[.[] | select(.status=="in_progress" or .status=="queued")][0].databaseId // empty' 2>/dev/null || true)
+
+    if [ -n "$IN_PROGRESS" ]; then
+      echo "1. CI run #$IN_PROGRESS in progress — polling (up to 10 min)..."
+      POLL_MAX=60  # 60 × 10s = 10 min
+      for i in $(seq 1 $POLL_MAX); do
+        CI_CONCLUSION=$(gh run view "$IN_PROGRESS" --repo "$REPO" --json conclusion --jq '.conclusion // empty' 2>/dev/null || true)
+        if [ -n "$CI_CONCLUSION" ]; then
+          break
+        fi
+        sleep 10
+      done
+      if [ "$CI_CONCLUSION" = "success" ]; then
+        CI_SHA=$(gh run view "$IN_PROGRESS" --repo "$REPO" --json headSha --jq '.headSha')
+      fi
+    fi
+  fi
+
+  if [ -z "$CI_SHA" ]; then
+    echo "1. CI has not passed on this branch (no green run found)"
     FAILED=1
   else
     # Check if any source files changed between the green run and current HEAD.
@@ -112,10 +134,47 @@ else
 fi
 
 # 3. PR is mergeable (no conflicts)
+#    If UNKNOWN, retry up to 3 times with 5s delay (GitHub needs time after a push).
+#    If CONFLICTING, attempt an automatic rebase before failing.
+resolve_mergeability() {
+  local status="$1"
+  # Retry UNKNOWN up to 3 times
+  if [ "$status" = "UNKNOWN" ]; then
+    for i in 1 2 3; do
+      echo "   Mergeability UNKNOWN — retry $i/3 (waiting 5s)..."
+      sleep 5
+      status=$(gh pr view "$PR_NUMBER" --repo "$REPO" --json mergeable --jq '.mergeable')
+      [ "$status" != "UNKNOWN" ] && break
+    done
+  fi
+  # Attempt rebase if conflicting
+  if [ "$status" = "CONFLICTING" ]; then
+    echo "   PR has conflicts — attempting automatic rebase..."
+    git fetch origin "$BASE_BRANCH" 2>/dev/null || true
+    if git rebase "origin/$BASE_BRANCH" 2>/dev/null; then
+      git push --force-with-lease 2>/dev/null || true
+      echo "   Rebase succeeded — waiting for GitHub to recompute mergeability..."
+      sleep 5
+      status=$(gh pr view "$PR_NUMBER" --repo "$REPO" --json mergeable --jq '.mergeable')
+      # One more retry if still UNKNOWN after rebase push
+      if [ "$status" = "UNKNOWN" ]; then
+        sleep 5
+        status=$(gh pr view "$PR_NUMBER" --repo "$REPO" --json mergeable --jq '.mergeable')
+      fi
+    else
+      git rebase --abort 2>/dev/null || true
+      echo "   Automatic rebase failed (real conflicts). Manual resolution required."
+    fi
+  fi
+  echo "$status"
+}
+
+MERGEABLE=$(resolve_mergeability "$MERGEABLE")
+
 if [ "$MERGEABLE" = "MERGEABLE" ]; then
   echo "3. PR is mergeable"
 elif [ "$MERGEABLE" = "UNKNOWN" ]; then
-  echo "3. Mergeability not yet computed — try again in a few seconds"
+  echo "3. Mergeability still UNKNOWN after retries — check GitHub and retry"
   FAILED=1
 else
   echo "3. PR is not mergeable (status: $MERGEABLE)"

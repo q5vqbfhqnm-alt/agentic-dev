@@ -131,6 +131,17 @@ Both CI green **and** `VERDICT: approved` are required to proceed.
 
 **Max 3 fix attempts** — after 3 rounds, stop and escalate to the user.
 
+### E2E failure triage
+
+If the merge gate reports an E2E failure, triage before returning to the orchestrator:
+
+1. **Check the E2E logs** — read the output from the merge-gate run to identify which test(s) failed
+2. **Classify the failure:**
+   - **Flaky / environment** — test passes locally but fails in gate (e.g., timeout, missing env var, port conflict). Report as environmental and suggest re-run.
+   - **Real regression** — test fails because of a code change in this PR. Return the failing test name, expected vs actual, and the likely source file to the orchestrator for fix.
+   - **Pre-existing** — test was already failing on the base branch. Verify with `git stash && git checkout origin/$BASE_BRANCH && $AGENTIC_DEV_E2E_CMD` if unclear. Report as pre-existing, not a blocker for this PR.
+3. **Include in return:** failing test name(s), failure classification, and relevant log snippet so the dev agent can act without re-running.
+
 ---
 
 ## Step 3b: Re-review (session resume)
@@ -164,6 +175,12 @@ DIFF=$(git diff "$REVIEWED_SHA" HEAD)
 ---
 
 ## Merge gate
+
+> **Boundary:** The merge gate is the authoritative check for CI status,
+> mergeability, and E2E. Do NOT independently re-check CI conclusion or
+> mergeability before calling merge-gate — the gate handles retries,
+> polling, and rebase internally. Your CI watch (step 1–2) is only to
+> unblock the flow early; merge-gate re-verifies from scratch.
 
 ```bash
 bash "${CLAUDE_PLUGIN_ROOT}/scripts/merge-gate.sh" $PR_NUMBER
