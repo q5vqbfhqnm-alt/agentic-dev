@@ -142,7 +142,17 @@ EOF
 
 Label: `feature`, `bug`, `refactor`, or `chore` matching the request type.
 If issue templates are available, the issue body should follow the template format.
-Copy the issue URL and number — the Dev Agent needs it.
+
+---
+
+## Return format
+
+Return to the orchestrator:
+- `ISSUE_NUMBER` — the created or edited issue number
+- `ISSUE_URL` — the issue URL
+
+The orchestrator passes the issue number to the dev agent automatically —
+do not instruct the user to copy it manually.
 
 ---
 
@@ -151,4 +161,4 @@ Copy the issue URL and number — the Dev Agent needs it.
 - [ ] Every criterion is observable (no subjective language)
 - [ ] At least one OUT OF SCOPE item listed
 - [ ] No implementation suggestions in the issue
-- [ ] Issue created/updated and URL noted for the Dev Agent
+- [ ] Issue created/updated successfully

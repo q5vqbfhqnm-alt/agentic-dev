@@ -12,12 +12,34 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PLUGIN_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 source "$PLUGIN_ROOT/scripts/config.sh"
 
+# Hard-fail if jq is missing — without it, COMMAND is empty and all checks
+# silently pass. Exit 2 so the agent sees the block immediately.
+if ! command -v jq >/dev/null 2>&1; then
+  echo "BLOCKED: jq is not installed. All hooks require jq to parse tool input. Install jq and retry." >&2
+  exit 2
+fi
+
+# Append a structured log entry to .git/agentic-dev/hooks.log (best-effort).
+_hook_log() {
+  local action="$1" detail="$2"
+  local log_dir
+  log_dir="$(git rev-parse --git-dir 2>/dev/null)/agentic-dev"
+  mkdir -p "$log_dir" 2>/dev/null || return 0
+  printf '%s\thook=validate-branch-base\taction=%s\t%s\n' \
+    "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$action" "$detail" \
+    >> "$log_dir/hooks.log" 2>/dev/null || true
+}
+
 INPUT=$(cat)
 COMMAND=$(echo "$INPUT" | jq -r '.tool_input.command // empty')
 
 if [ -z "$COMMAND" ]; then
+  _hook_log "allowed" "cmd=<non-bash>"
   exit 0
 fi
+
+# Truncate command for logging (first 120 chars)
+_CMD_SHORT="${COMMAND:0:120}"
 
 ALLOWED_BASES="${AGENTIC_DEV_BASE_BRANCH}|main|origin/${AGENTIC_DEV_BASE_BRANCH}|origin/main"
 
@@ -58,16 +80,20 @@ if echo "$COMMAND" | grep -qE 'git\s+(checkout\s+-b|switch\s+-c)\s+'; then
 
   # No explicit base (only 4 words) → allow (defaults to HEAD)
   if [ "$WORD_COUNT" -le 4 ] || [ -z "$BASE" ]; then
+    _hook_log "allowed" "reason=no-explicit-base cmd=$_CMD_SHORT"
     exit 0
   fi
 
   if ! echo "$BASE" | grep -qE "^($ALLOWED_BASES)$"; then
+    _hook_log "blocked" "reason=wrong-base base=$BASE cmd=$_CMD_SHORT"
     echo "BLOCKED: Branch must be created from '${AGENTIC_DEV_BASE_BRANCH}' (or 'main' for hotfix). Got base: $BASE" >&2
     exit 2
   fi
   if ! check_stale_base "$BASE"; then
+    _hook_log "blocked" "reason=stale-base base=$BASE cmd=$_CMD_SHORT"
     exit 2
   fi
+  _hook_log "allowed" "base=$BASE cmd=$_CMD_SHORT"
   exit 0
 fi
 
@@ -78,6 +104,7 @@ fi
 if echo "$COMMAND" | grep -qE 'git\s+worktree\s+add\s+'; then
   # Only check if -b is present (creating a new branch)
   if ! echo "$COMMAND" | grep -qE '\s-b\s'; then
+    _hook_log "allowed" "reason=worktree-no-branch cmd=$_CMD_SHORT"
     exit 0
   fi
 
@@ -90,17 +117,22 @@ if echo "$COMMAND" | grep -qE 'git\s+worktree\s+add\s+'; then
 
   # Only path, no base → allow (defaults to HEAD)
   if [ "$ARG_COUNT" -le 1 ] || [ -z "$BASE" ]; then
+    _hook_log "allowed" "reason=worktree-no-explicit-base cmd=$_CMD_SHORT"
     exit 0
   fi
 
   if ! echo "$BASE" | grep -qE "^($ALLOWED_BASES)$"; then
+    _hook_log "blocked" "reason=worktree-wrong-base base=$BASE cmd=$_CMD_SHORT"
     echo "BLOCKED: Worktree branch must be created from '${AGENTIC_DEV_BASE_BRANCH}' (or 'main' for hotfix). Got base: $BASE" >&2
     exit 2
   fi
   if ! check_stale_base "$BASE"; then
+    _hook_log "blocked" "reason=worktree-stale-base base=$BASE cmd=$_CMD_SHORT"
     exit 2
   fi
+  _hook_log "allowed" "base=$BASE cmd=$_CMD_SHORT"
   exit 0
 fi
 
+_hook_log "allowed" "reason=no-branch-cmd cmd=$_CMD_SHORT"
 exit 0

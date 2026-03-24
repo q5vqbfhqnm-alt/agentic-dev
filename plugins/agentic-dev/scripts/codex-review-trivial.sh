@@ -107,6 +107,14 @@ REVIEW_BODY=$(cat "$REVIEW_OUTPUT")
 # Extract verdict before any truncation — it lives at the end of the output
 VERDICT_LINE=$(echo "$REVIEW_BODY" | grep -i '^VERDICT:' | tail -1 || true)
 
+# Hard-fail if no verdict was produced — a verdict-less review is not actionable.
+if [ -z "$VERDICT_LINE" ]; then
+  echo "ERROR: Codex produced a review but no VERDICT line was found." >&2
+  gh pr comment "$PR_NUMBER" --body "<!-- agentic-dev:codex-review:v1 -->
+**Codex trivial review produced no verdict** — the review output did not contain a \`VERDICT:\` line. This may indicate a truncated response or a Codex failure. Re-run \`codex-review-trivial.sh\`."
+  exit 4
+fi
+
 # Truncate if exceeding GitHub comment limit (65,536 chars)
 if [ ${#REVIEW_BODY} -gt 65000 ]; then
   FULL_REVIEW_PATH="${TMPDIR:-/tmp}/codex-review-trivial-pr${PR_NUMBER}-$(date +%s).txt"
@@ -150,3 +158,19 @@ if [ -z "$CODEX_SESSION_ID" ]; then
   echo "WARNING: Could not extract Codex session ID. Re-review will require a fresh session."
 fi
 echo "CODEX_SESSION_ID=${CODEX_SESSION_ID:-none}"
+
+# Persist session state to .git/agentic-dev/session-{branch}.json (best-effort).
+_SESSION_DIR="$(git rev-parse --git-dir 2>/dev/null)/agentic-dev"
+if mkdir -p "$_SESSION_DIR" 2>/dev/null; then
+  _SESSION_FILE="$_SESSION_DIR/session-${HEAD_BRANCH}.json"
+  cat > "$_SESSION_FILE" <<SESSIONJSON
+{
+  "pr_number": ${PR_NUMBER},
+  "branch": "${HEAD_BRANCH}",
+  "codex_session_id": "${CODEX_SESSION_ID:-none}",
+  "verdict": "$(echo "$VERDICT_LINE" | sed 's/^VERDICT:[[:space:]]*//')",
+  "round": 1,
+  "updated_at": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+}
+SESSIONJSON
+fi
