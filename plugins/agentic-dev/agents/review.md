@@ -167,10 +167,17 @@ git rebase "origin/$AGENTIC_DEV_BASE_BRANCH"
 DIFF=$(git diff "$REVIEWED_SHA" HEAD)
 ```
 
+If the rebase changed HEAD, push the result so the PR is up to date:
+```bash
+if [ -n "$DIFF" ]; then
+  git push --force-with-lease
+fi
+```
+
 | Diff result | Action |
 |-------------|--------|
 | Empty | Rebase was a no-op — skip re-review, proceed to merge gate |
-| Non-empty | Treat as new push — restart CI + re-review |
+| Non-empty | Push with `--force-with-lease`, then restart CI + re-review |
 
 ---
 

@@ -42,7 +42,8 @@ fi
 REVIEW_OUTPUT=$(mktemp)
 PROMPT_FILE=$(mktemp)
 CODEX_LOG=$(mktemp)
-trap 'rm -f "$REVIEW_OUTPUT" "$PROMPT_FILE" "$CODEX_LOG"' EXIT
+COMMENT_FILE=$(mktemp)
+trap 'rm -f "$REVIEW_OUTPUT" "$PROMPT_FILE" "$CODEX_LOG" "$COMMENT_FILE"' EXIT
 
 # Build prompt in a temp file to avoid quoting issues with variable expansion
 cat > "$PROMPT_FILE" <<PROMPT
@@ -157,8 +158,9 @@ REVIEW_MARKER="<!-- agentic-dev:codex-review:v1 -->"
 REVIEW_BODY="${REVIEW_MARKER}
 ${REVIEW_BODY}"
 
-# Post review as PR comment
-gh pr comment "$PR_NUMBER" --body "$REVIEW_BODY"
+# Post review as PR comment (file-based to avoid shell argument limits)
+printf '%s' "$REVIEW_BODY" > "$COMMENT_FILE"
+gh pr comment "$PR_NUMBER" --body-file "$COMMENT_FILE"
 echo ""
 echo "Codex verdict: $VERDICT_LINE"
 
