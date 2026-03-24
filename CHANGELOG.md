@@ -1,5 +1,22 @@
 # Changelog
 
+## 1.4.0 — 2026-03-24
+
+Reliability hardening: fail-loud guards, persistent session state, verdict validation.
+
+### Core reliability
+- Fixed: All four hooks now hard-fail (exit 2) when `jq` is missing instead of silently allowing all commands through
+- Fixed: `codex-review.sh`, `codex-review-trivial.sh`, and `codex-re-review.sh` exit non-zero when Codex output contains no VERDICT line
+- Added: Review scripts persist session state (`CODEX_SESSION_ID`, verdict, round) to `.git/agentic-dev/session-{branch}.json`
+- Added: Orchestrator references session state file as authoritative source for review state across context boundaries
+
+### Observability
+- Added: All four hooks log every invocation (timestamp, hook name, action, command summary) to `.git/agentic-dev/hooks.log`
+
+### Cleanup
+- Changed: Spec agent no longer instructs user to manually copy issue URL — output section matches orchestrator's automated handoff
+- Added: `docs/template-contract.md` documenting which PR/issue sections the review prompt and merge gate depend on
+
 ## 1.3.0 — 2026-03-24
 
 Path-aware checks, tiered E2E, hardened merge/review workflow.

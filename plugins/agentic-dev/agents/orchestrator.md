@@ -130,6 +130,28 @@ The review agent runs CI + Codex review + merge gate and returns:
 
 ---
 
+## Session state file
+
+The review scripts persist state to `.git/agentic-dev/session-{branch}.json`
+after each review round. This file is the **authoritative source** for
+`CODEX_SESSION_ID` and the current round number — use it instead of relying
+on conversational context, which may be truncated in long sessions.
+
+```bash
+# Read session state (returns empty fields if file is missing)
+SESSION_FILE="$(git rev-parse --git-dir)/agentic-dev/session-${BRANCH}.json"
+if [ -f "$SESSION_FILE" ]; then
+  CODEX_SESSION_ID=$(jq -r '.codex_session_id' "$SESSION_FILE")
+  REVIEW_ROUND=$(jq -r '.round' "$SESSION_FILE")
+  LAST_VERDICT=$(jq -r '.verdict' "$SESSION_FILE")
+fi
+```
+
+Fall back to script output if the file is missing (e.g., first run in a
+fresh worktree or `.git/agentic-dev/` was cleaned up).
+
+---
+
 ## Fix-review loop
 
 Track a cycle counter starting at 0. A cycle increments on each push.
