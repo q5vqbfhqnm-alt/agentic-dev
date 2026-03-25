@@ -1,5 +1,23 @@
 # Changelog
 
+## 1.7.0 — 2026-03-25
+
+User override path, hook consolidation, and E2E cleanup.
+
+### Added
+- `scripts/user-override.sh` — user runs from terminal to authorise merge despite missing/blocked Codex approval; prompts for typed confirmation before posting marker comment
+- Merge gate accepts `agentic-dev:user-override:v1` marker as a second valid approval path alongside Codex approval
+
+### Changed
+- User override available at any point in the pipeline — before review starts, mid fix-review loop, on gate failure, or at CI/pre-merge steps (with clarification)
+- Orchestrator presents resolved script path to user; never posts override comment itself
+- Consolidated four `PreToolUse` hooks into one `hooks/pre-tool-use.sh` — one shell spawn per Bash call instead of four
+
+### Removed
+- Dead E2E config vars (`E2E_CMD`, `E2E_SMOKE_CMD`, `E2E_FULL_PATHS`, `E2E_SMOKE_PATHS`, `E2E_PATHS`) — consumed by nothing in the pipeline
+- Empty `skills/dev/` and `skills/spec/` directories
+- False claims that orchestrator triggers or gates on E2E
+
 ## 1.6.2 — 2026-03-25
 
 Workflow hardening — single CI gate, hook fixes, and config accuracy improvements.
