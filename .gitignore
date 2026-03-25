@@ -3,3 +3,6 @@ tests/
 
 # Claude Code worktrees
 .claude/worktrees/
+
+# Local Claude Code settings (machine-specific, e.g. container permissions)
+.claude/settings.local.json
