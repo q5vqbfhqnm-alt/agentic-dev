@@ -57,9 +57,16 @@ elif echo "$COMMAND" | grep -qE "\-m[[:space:]]+'"; then
   MSG=$(echo "$COMMAND" | sed -n -E "s/.*-m[[:space:]]+'([^']+)'.*/\1/p" | head -1)
 fi
 
-# If we couldn't extract the message, allow it (don't block on parse failure)
+# If we couldn't extract the message, block — fail-closed.
+# The hook cannot verify the convention without the message text.
+# Unsupported forms (git commit -F file, --file, editor-based) will be caught here.
+# Use -m "..." or a heredoc instead.
 if [ -z "$MSG" ]; then
-  exit 0
+  _hook_log "blocked" "reason=unparseable-commit-msg cmd=$_CMD_SHORT"
+  echo "BLOCKED: Could not extract commit message from this git commit command." >&2
+  echo "  Use: git commit -m \"type(scope): description\"" >&2
+  echo "  Or a heredoc: git commit -m \"\$(cat <<'EOF'...EOF)\"" >&2
+  exit 2
 fi
 
 # Extract just the first line for validation

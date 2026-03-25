@@ -78,42 +78,51 @@ echo ""
 # ── 2. Build system detection ──────────────────────────────────────────────
 echo "Build system:"
 
-# Only auto-detect if the user hasn't set custom commands
-if [ "$AGENTIC_DEV_TEST_CMD" = "npm test" ] && \
-   [ "$AGENTIC_DEV_LINT_CMD" = "npm run lint" ] && \
-   [ "$AGENTIC_DEV_BUILD_CMD" = "npm run build" ]; then
-
-  if [ -f "package.json" ]; then
-    pass "Detected: npm (package.json)"
-  elif [ -f "Makefile" ]; then
-    warn "Detected: Make — set AGENTIC_DEV_TEST_CMD, AGENTIC_DEV_LINT_CMD, AGENTIC_DEV_BUILD_CMD"
-    echo "    Suggested:"
-    echo "      export AGENTIC_DEV_TEST_CMD='make test'"
-    echo "      export AGENTIC_DEV_LINT_CMD='make lint'"
-    echo "      export AGENTIC_DEV_BUILD_CMD='make build'"
-  elif [ -f "Cargo.toml" ]; then
-    warn "Detected: Rust (Cargo) — set build commands"
-    echo "    Suggested:"
-    echo "      export AGENTIC_DEV_TEST_CMD='cargo test'"
-    echo "      export AGENTIC_DEV_LINT_CMD='cargo clippy'"
-    echo "      export AGENTIC_DEV_BUILD_CMD='cargo build'"
-  elif [ -f "go.mod" ]; then
-    warn "Detected: Go — set build commands"
-    echo "    Suggested:"
-    echo "      export AGENTIC_DEV_TEST_CMD='go test ./...'"
-    echo "      export AGENTIC_DEV_LINT_CMD='golangci-lint run'"
-    echo "      export AGENTIC_DEV_BUILD_CMD='go build ./...'"
-  elif [ -f "pyproject.toml" ] || [ -f "setup.py" ]; then
-    warn "Detected: Python — set build commands"
-    echo "    Suggested:"
-    echo "      export AGENTIC_DEV_TEST_CMD='pytest'"
-    echo "      export AGENTIC_DEV_LINT_CMD='ruff check .'"
-    echo "      export AGENTIC_DEV_BUILD_CMD='python -m build'"
+_report_cmd() {
+  local label="$1" cmd="$2" suggested="$3"
+  if [ -n "$cmd" ]; then
+    pass "$label: $cmd"
   else
-    warn "No recognized build system — set AGENTIC_DEV_TEST_CMD, AGENTIC_DEV_LINT_CMD, AGENTIC_DEV_BUILD_CMD"
+    warn "$label: not configured (will skip) — suggested: $suggested"
   fi
-else
+}
+
+if [ -f "package.json" ]; then
+  pass "Detected: npm (package.json)"
+  _report_cmd "Test"  "$AGENTIC_DEV_TEST_CMD"  "export AGENTIC_DEV_TEST_CMD='npm test'"
+  _report_cmd "Lint"  "$AGENTIC_DEV_LINT_CMD"  "export AGENTIC_DEV_LINT_CMD='npm run lint'"
+  _report_cmd "Build" "$AGENTIC_DEV_BUILD_CMD" "export AGENTIC_DEV_BUILD_CMD='npm run build'"
+elif [ -f "Makefile" ]; then
+  warn "Detected: Make — set build commands"
+  echo "    Suggested:"
+  echo "      export AGENTIC_DEV_TEST_CMD='make test'"
+  echo "      export AGENTIC_DEV_LINT_CMD='make lint'"
+  echo "      export AGENTIC_DEV_BUILD_CMD='make build'"
+elif [ -f "Cargo.toml" ]; then
+  warn "Detected: Rust (Cargo) — set build commands"
+  echo "    Suggested:"
+  echo "      export AGENTIC_DEV_TEST_CMD='cargo test'"
+  echo "      export AGENTIC_DEV_LINT_CMD='cargo clippy'"
+  echo "      export AGENTIC_DEV_BUILD_CMD='cargo build'"
+elif [ -f "go.mod" ]; then
+  warn "Detected: Go — set build commands"
+  echo "    Suggested:"
+  echo "      export AGENTIC_DEV_TEST_CMD='go test ./...'"
+  echo "      export AGENTIC_DEV_LINT_CMD='golangci-lint run'"
+  echo "      export AGENTIC_DEV_BUILD_CMD='go build ./...'"
+elif [ -f "pyproject.toml" ] || [ -f "setup.py" ]; then
+  warn "Detected: Python — set build commands"
+  echo "    Suggested:"
+  echo "      export AGENTIC_DEV_TEST_CMD='pytest'"
+  echo "      export AGENTIC_DEV_LINT_CMD='ruff check .'"
+  echo "      export AGENTIC_DEV_BUILD_CMD='python -m build'"
+elif [ -n "$AGENTIC_DEV_TEST_CMD" ] || [ -n "$AGENTIC_DEV_LINT_CMD" ] || [ -n "$AGENTIC_DEV_BUILD_CMD" ]; then
   pass "Custom build commands configured"
+  _report_cmd "Test"  "$AGENTIC_DEV_TEST_CMD"  ""
+  _report_cmd "Lint"  "$AGENTIC_DEV_LINT_CMD"  ""
+  _report_cmd "Build" "$AGENTIC_DEV_BUILD_CMD" ""
+else
+  warn "No recognized build system — set AGENTIC_DEV_TEST_CMD, AGENTIC_DEV_LINT_CMD, AGENTIC_DEV_BUILD_CMD"
 fi
 
 echo ""

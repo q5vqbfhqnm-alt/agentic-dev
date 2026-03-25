@@ -51,11 +51,15 @@ if echo "$COMMAND" | grep -qE 'gh\s+pr\s+comment'; then
   exit 2
 fi
 
-# Block gh api calls to the issue/PR comments endpoint — same bypass vector
+# Block gh api POST calls to the issue/PR comments endpoint — same bypass vector
 # as gh pr comment but via the raw API.
-if echo "$COMMAND" | grep -qE 'gh\s+api\s+.*issues/[0-9]+/comments'; then
+# GET calls are allowed: the review flow and merge gate read existing comments
+# to find approval artifacts, inspect prior reviews, and delete stale comments.
+# Only POST (writing a new comment) is the restricted operation.
+if echo "$COMMAND" | grep -qE 'gh\s+api\s+.*issues/[0-9]+/comments' && \
+   echo "$COMMAND" | grep -qE '(-X\s+POST|--method\s+POST)'; then
   _hook_log "blocked" "reason=direct-api-comment cmd=$_CMD_SHORT"
-  echo "BLOCKED: Direct API calls to the comments endpoint are not allowed. Reviews must be posted by the codex-review scripts." >&2
+  echo "BLOCKED: Direct API calls to post to the comments endpoint are not allowed. Reviews must be posted by the codex-review scripts." >&2
   exit 2
 fi
 

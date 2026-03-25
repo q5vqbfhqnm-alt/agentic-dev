@@ -1,128 +1,84 @@
 ---
 name: ship
-description: "Pre-push checks, localhost gate, commit convention, PR creation, and verification checklists. Use when preparing to push code, opening a PR, or running pre-push validation."
+description: "Commit, push, and open a PR. Non-interactive mechanical step — no user prompts. Localhost review is handled by the dev agent before invoking this skill."
 user-invocable: false
 ---
 
 # Ship
 
-Everything from pre-push checks through PR creation and verification.
+Commit, push, and open a PR. This skill is purely mechanical — no user interaction,
+no spec mutation. Localhost review (if required) is completed by the dev agent
+before this skill is invoked.
 
-## Pre-push checklist
+## Pre-push checks
 
-### If LOCALHOST_MODE = yes
+```bash
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/pre-push-checks.sh"
+```
 
-1. **Start the dev server inside the worktree:**
+All checks must pass before committing. If any check fails, fix it and re-run.
 
-   The dev server MUST run from the worktree directory, not the main repo
-   (which may already be serving another branch). Use a different port to
-   avoid conflicts.
+## Commit
 
-   ```bash
-   WORKTREE_DIR=$(pwd)
-   # Pick a port that won't collide with the main dev server on :3000
-   DEV_PORT="${AGENTIC_DEV_DEV_PORT:-3001}"
-   lsof -ti:"$DEV_PORT" | xargs kill -9 2>/dev/null || true
-   eval "$AGENTIC_DEV_INSTALL_CMD"
-   PORT=$DEV_PORT eval "$AGENTIC_DEV_DEV_CMD" &
-   DEV_PID=$!
-   ```
-   Wait for the "Ready" message before continuing.
+Single logical commit per PR. Message format:
 
-2. **Present links to the user** — based on which files/routes changed,
-   give a checklist with exact localhost URLs. Always show the port and
-   worktree path so the user knows which instance they're checking:
+Full path (issue exists):
+```
+feat|fix|refactor|docs|test|chore(scope): short description (closes #N)
+```
 
-   > Dev server running from worktree `$WORKTREE_DIR` on port `$DEV_PORT`.
-   > Please verify:
-   >
-   > - [ ] **Main flow** — http://localhost:$DEV_PORT/
-   > - [ ] **Changed page** — http://localhost:$DEV_PORT/[route]
-   > - [ ] Bug no longer reproduces (if bug fix)
-   > - [ ] Nothing visually broken on affected pages
-   >
-   > Reply **ok** when done, or describe what needs to change.
+Trivial path (no issue):
+```
+feat|fix|refactor|docs|test|chore(scope): short description
+```
 
-   Map every changed route/page to its localhost URL.
-   **Stop and wait for the user to confirm** before continuing.
-   If the user reports an issue, fix it and re-present the checklist.
+During a fix-review loop, additional commits are acceptable — the PR will be
+squash-merged, so intermediate fix commits do not affect final history.
+Do not amend a commit that has already been pushed.
 
-3. **Sync spec if scope changed** — if the user requested changes during
-   localhost review that alter acceptance criteria or scope:
-   - Update the GitHub Issue to reflect what was actually built:
-     ```bash
-     gh issue edit [number] --body "[updated body with revised ACs]"
-     ```
-   - Note "AC updated during localhost review" in the PR description.
-   - Skip this step if the changes were purely cosmetic (padding, color,
-     copy tweaks) and did not alter ACs.
+## Push
 
-4. **Stop the dev server** — `kill $DEV_PID 2>/dev/null || true`
-5. **Run automated checks:** `bash "${CLAUDE_PLUGIN_ROOT}/scripts/pre-push-checks.sh"`
+First push:
+```bash
+git push -u origin HEAD
+```
 
-### If LOCALHOST_MODE = no
+Subsequent pushes in a fix-review loop:
+```bash
+git push
+```
 
-1. **Run automated checks:** `bash "${CLAUDE_PLUGIN_ROOT}/scripts/pre-push-checks.sh"`
+## Open the PR
 
-All steps must pass before committing and pushing.
-
-## Commit convention
-
-Single commit per push. Message format:
-`feat|fix|refactor(scope): short description (closes #N)`.
-
-On the trivial path (no issue), omit `(closes #N)`:
-`feat|fix|refactor(scope): short description`.
-
-The PR will be squash-merged, so keep it to one clean commit.
-
-## Opening the PR
-
-Open PR against `$AGENTIC_DEV_BASE_BRANCH` (default: `preview`). If the repo has a PR template
-(`$AGENTIC_DEV_PR_TEMPLATE`, defaults to `.github/pull_request_template.md`),
+Open against `$AGENTIC_DEV_BASE_BRANCH`. If a PR template exists at
+`$AGENTIC_DEV_PR_TEMPLATE` (default: `.github/pull_request_template.md`),
 GitHub will pre-fill from it.
 
-### Full path
+### Full path — required fields
 
-Fill every section of the PR description:
 - **What changed** — 2-3 sentence summary
-- **Key decisions** — deviations from spec or ADR.md patterns
-- **Risky areas** — anything that could regress; call sites; shared components
-- **How to test / E2E auth** — exact commands or auth method
-- All checklist items answered, test evidence filled in
-- Preview URL and commit SHA
-- Include `- Added/Fixed/Changed/Removed: [what]` bullets (merge-gate.sh
-  extracts these for CHANGELOG)
-- Include `Closes #[issue-number]`
-- If AC changed during implementation, update the Issue and note
-  "AC updated" in the PR description
+- **Key decisions** — deviations from spec or ADR patterns
+- **Risky areas** — anything that could regress; affected call sites; shared components
+- **How to test** — exact commands or auth method
+- `- Added/Fixed/Changed/Removed: [what]` bullets (used for CHANGELOG)
+- `Closes #[issue-number]`
 
-### Trivial path
+### Trivial path — required fields
 
-PR description can be lighter — fill **What changed** (1-2 lines) and
-the checklist. Other sections can be "N/A" or omitted.
-- Still include `- Added/Fixed/Changed/Removed: [what]` bullets for CHANGELOG
-- No `Closes #[issue-number]` needed
-- If mid-implementation escalation occurred, note the deviation
+- **What changed** — 1-2 lines
+- `- Added/Fixed/Changed/Removed: [what]` bullets (used for CHANGELOG)
+
+Omit other sections or mark them N/A.
 
 ## Verification checklist
 
-### Full path
+Items marked *(if applicable)* are only required when that capability exists in the repo.
 
-- [ ] Acceptance criteria all met and verifiable
-- [ ] Unit/integration tests written and passing
-- [ ] No lint or type errors
-- [ ] E2E tests updated if existing tests cover changed flows
-- [ ] PR description fully filled (no placeholder text remaining)
-- [ ] `Closes #[issue]` in PR description
-- [ ] If AC changed: Issue updated + "AC updated" in PR
-- [ ] Branch is from `$AGENTIC_DEV_BASE_BRANCH`, not `main`
-
-### Trivial path
-
-- [ ] Change matches the user's description
-- [ ] Unit/integration tests passing (write new ones if needed)
-- [ ] No lint or type errors
-- [ ] E2E tests updated if existing tests cover changed flows
-- [ ] PR description has What changed + checklist filled
+- [ ] Change matches the spec (ACs for full path; scope contract for trivial path)
+- [ ] Unit/integration tests pass
+- [ ] No lint or type errors *(if applicable — skip if repo has no lint/type tooling)*
+- [ ] E2E tests updated if changed files are covered by existing E2E *(if applicable)*
+- [ ] PR description has no placeholder text
+- [ ] `- Added/Fixed/Changed/Removed:` bullets present
+- [ ] `Closes #N` present *(full path only)*
 - [ ] Branch is from `$AGENTIC_DEV_BASE_BRANCH`, not `main`

@@ -1,321 +1,60 @@
 #!/usr/bin/env bash
 set -euo pipefail
 #
-# Local replacement for merge-gate.yml
+# Merge gate: anti-hallucination check.
 #
-# Runs release checks against a PR and auto-merges if all pass.
-# CHANGELOG is auto-generated from PR metadata on success (not during /dev).
-# Requires: gh CLI authenticated with write access.
+# Verifies that a Codex review comment with VERDICT: approved exists on the PR
+# AND that the comment's reviewed-sha marker matches the current head commit SHA.
+# This prevents merging on a PR that has been modified since it was last reviewed.
 #
-# Usage:  ./scripts/merge-gate.sh <PR_NUMBER>
-
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-source "$SCRIPT_DIR/config.sh"
+# Note on authenticity: verification is limited to comment body pattern matching
+# (marker + SHA). Any actor able to post a PR comment with the
+# agentic-dev:codex-review:v1 marker can satisfy this gate. The gate's primary
+# purpose is preventing the model from merging without having run the review
+# scripts at all — not preventing a determined adversary from spoofing a comment.
+#
+# Exits 0 if a valid SHA-matched approved comment is found, 1 otherwise.
+#
+# Usage:  scripts/merge-gate.sh <PR_NUMBER>
 
 PR_NUMBER="${1:?Usage: merge-gate.sh <PR_NUMBER>}"
 REPO=$(gh repo view --json nameWithOwner --jq '.nameWithOwner')
 
-echo "=== Merge Gate ==="
-echo "PR: #$PR_NUMBER  Repo: $REPO"
+# Get the current PR head SHA
+HEAD_SHA=$(gh pr view "$PR_NUMBER" --repo "$REPO" \
+  --json headRefOid --jq '.headRefOid')
 
-# Fetch all PR metadata in a single API call
-PR_DATA=$(gh pr view "$PR_NUMBER" --repo "$REPO" \
-  --json headRefName,baseRefName,mergeable,body,title)
-BRANCH=$(echo "$PR_DATA" | jq -r '.headRefName')
-BASE_BRANCH=$(echo "$PR_DATA" | jq -r '.baseRefName')
-PR_TITLE=$(echo "$PR_DATA" | jq -r '.title')
-PR_BODY_RAW=$(echo "$PR_DATA" | jq -r '.body')
-MERGEABLE=$(echo "$PR_DATA" | jq -r '.mergeable')
-SAFE_TITLE=$(echo "$PR_TITLE" | sed 's/<[^>]*>//g')
-
-# Determine E2E tier based on which files the PR touches.
-# Tiers: full > smoke > none. Highest tier wins.
-CHANGED_FILES=$(git diff --name-only "origin/$BASE_BRANCH"...HEAD 2>/dev/null || true)
-E2E_TIER="none"
-
-if [ -n "$CHANGED_FILES" ]; then
-  # Legacy: if AGENTIC_DEV_E2E_PATHS is set (old config), use binary full/none
-  if [ -n "$AGENTIC_DEV_E2E_PATHS" ]; then
-    if echo "$CHANGED_FILES" | grep -qE "$AGENTIC_DEV_E2E_PATHS"; then
-      E2E_TIER="full"
-    fi
-  else
-    # Tiered detection: check full paths first, then smoke
-    if echo "$CHANGED_FILES" | grep -qE "$AGENTIC_DEV_E2E_FULL_PATHS"; then
-      E2E_TIER="full"
-    elif echo "$CHANGED_FILES" | grep -qE "$AGENTIC_DEV_E2E_SMOKE_PATHS"; then
-      E2E_TIER="smoke"
-    fi
-  fi
-fi
-
-FAILED=0
-
-# 0. Codex review comment exists (anti-hallucination gate)
-#    Matches both Round 1 (9-point checklist: "### 1. Spec alignment") and
-#    re-review comments ("### Previous findings"). Both contain a VERDICT line.
-#    Also requires the machine marker stamped by the bundled review scripts —
-#    comments without it are ignored even if they match the structure.
-REVIEW_COMMENTS_JSON=$(gh api "repos/$REPO/issues/$PR_NUMBER/comments" \
-  --jq '[.[] | select(.body | test("VERDICT:")) | select(.body | test("<!-- agentic-dev:codex-review:v1 -->")) | select(.body | test("### (1\\. Spec alignment|1\\. Correctness|Previous findings)"))]')
-REVIEW_COUNT=$(echo "$REVIEW_COMMENTS_JSON" | jq 'length')
-
-if [ "$REVIEW_COUNT" -gt "0" ]; then
-  VERDICT_LINE=$(echo "$REVIEW_COMMENTS_JSON" | jq -r 'last | .body' | grep -i '^VERDICT:' | tail -1)
-  if echo "$VERDICT_LINE" | grep -qi 'approved'; then
-    echo "0. Codex review passed (VERDICT: approved)"
-  else
-    echo "0. Codex review found BUT VERDICT is not approved: $VERDICT_LINE"
-    FAILED=1
-  fi
-else
-  echo "0. No Codex review comment found — review has not been run"
-  echo "   A PR comment with structured checklist and VERDICT line is required."
-  echo "   This is a hard blocker. The model cannot skip or fake the review."
-  FAILED=1
-fi
-
-# 1. CI passed (tolerates rebase-only changes since last green run)
-#    Uses unified discovery from config.sh.
-CI_WORKFLOW=$(agentic_dev_discover_ci_workflow "$BRANCH" "$REPO")
-
-if [ -z "$CI_WORKFLOW" ]; then
-  echo "1. No CI workflow found — skipping CI check"
-else
-  CI_RUN=$(gh run list --branch "$BRANCH" \
-    --workflow "$CI_WORKFLOW" --repo "$REPO" --json headSha,conclusion \
-    --jq '[.[] | select(.conclusion=="success")][0] // empty')
-  CI_SHA=$(echo "$CI_RUN" | jq -r '.headSha // empty')
-
-  # If no green run yet, check if CI is still running and wait for it
-  if [ -z "$CI_SHA" ]; then
-    IN_PROGRESS=$(gh run list --branch "$BRANCH" \
-      --workflow "$CI_WORKFLOW" --repo "$REPO" -L 1 --json status,databaseId \
-      --jq '[.[] | select(.status=="in_progress" or .status=="queued")][0].databaseId // empty' 2>/dev/null || true)
-
-    if [ -n "$IN_PROGRESS" ]; then
-      echo "1. CI run #$IN_PROGRESS in progress — polling (up to 10 min)..."
-      POLL_MAX=60  # 60 × 10s = 10 min
-      for i in $(seq 1 $POLL_MAX); do
-        CI_CONCLUSION=$(gh run view "$IN_PROGRESS" --repo "$REPO" --json conclusion --jq '.conclusion // empty' 2>/dev/null || true)
-        if [ -n "$CI_CONCLUSION" ]; then
-          break
-        fi
-        sleep 10
-      done
-      if [ "$CI_CONCLUSION" = "success" ]; then
-        CI_SHA=$(gh run view "$IN_PROGRESS" --repo "$REPO" --json headSha --jq '.headSha')
-      fi
-    fi
-  fi
-
-  if [ -z "$CI_SHA" ]; then
-    echo "1. CI has not passed on this branch (no green run found)"
-    FAILED=1
-  else
-    # Check if any source files changed between the green run and current HEAD.
-    CI_PATHS="$AGENTIC_DEV_CI_PATHS"
-    CODE_DIFF=$(git diff "$CI_SHA"...HEAD -- $CI_PATHS 2>/dev/null || echo "changed")
-    if [ -z "$CODE_DIFF" ]; then
-      echo "1. CI passed (no source changes since green run)"
-    else
-      echo "1. CI passed previously but source files changed since — re-run required"
-      FAILED=1
-    fi
-  fi
-fi
-
-# 2. E2E verification (tiered: none / smoke / full)
-#    The E2E command is project-specific. Set AGENTIC_DEV_E2E_CMD and
-#    optionally AGENTIC_DEV_E2E_SMOKE_CMD in config.
-if [ "$E2E_TIER" = "full" ]; then
-  echo "2. Diff touches core paths — running full E2E..."
-  if eval "$AGENTIC_DEV_E2E_CMD"; then
-    echo "   Full E2E passed"
-  else
-    echo "   Full E2E failed"
-    FAILED=1
-  fi
-elif [ "$E2E_TIER" = "smoke" ]; then
-  SMOKE_CMD="${AGENTIC_DEV_E2E_SMOKE_CMD:-$AGENTIC_DEV_E2E_CMD}"
-  echo "2. Diff touches UI/app paths — running smoke E2E..."
-  if eval "$SMOKE_CMD"; then
-    echo "   Smoke E2E passed"
-  else
-    echo "   Smoke E2E failed"
-    FAILED=1
-  fi
-else
-  echo "2. E2E not required — no E2E-sensitive paths changed"
-fi
-
-# 3. PR is mergeable (no conflicts)
-#    If UNKNOWN, retry up to 3 times with 5s delay (GitHub needs time after a push).
-#    If CONFLICTING, attempt an automatic rebase before failing.
-resolve_mergeability() {
-  local status="$1"
-  # Retry UNKNOWN up to 3 times
-  if [ "$status" = "UNKNOWN" ]; then
-    for i in 1 2 3; do
-      echo "   Mergeability UNKNOWN — retry $i/3 (waiting 5s)..." >&2
-      sleep 5
-      status=$(gh pr view "$PR_NUMBER" --repo "$REPO" --json mergeable --jq '.mergeable')
-      [ "$status" != "UNKNOWN" ] && break
-    done
-  fi
-  # Attempt rebase if conflicting
-  if [ "$status" = "CONFLICTING" ]; then
-    echo "   PR has conflicts — attempting automatic rebase..." >&2
-    git fetch origin "$BASE_BRANCH" 2>/dev/null || true
-    if git rebase "origin/$BASE_BRANCH" 2>/dev/null; then
-      git push --force-with-lease 2>/dev/null || true
-      echo "   Rebase succeeded — waiting for GitHub to recompute mergeability..." >&2
-      sleep 5
-      status=$(gh pr view "$PR_NUMBER" --repo "$REPO" --json mergeable --jq '.mergeable')
-      # One more retry if still UNKNOWN after rebase push
-      if [ "$status" = "UNKNOWN" ]; then
-        sleep 5
-        status=$(gh pr view "$PR_NUMBER" --repo "$REPO" --json mergeable --jq '.mergeable')
-      fi
-    else
-      git rebase --abort 2>/dev/null || true
-      echo "   Automatic rebase failed (real conflicts). Manual resolution required." >&2
-    fi
-  fi
-  echo "$status"
-}
-
-PRE_REBASE_SHA=$(git rev-parse HEAD 2>/dev/null || true)
-MERGEABLE=$(resolve_mergeability "$MERGEABLE")
-POST_REBASE_SHA=$(git rev-parse HEAD 2>/dev/null || true)
-
-if [ "$MERGEABLE" = "MERGEABLE" ]; then
-  echo "3. PR is mergeable"
-elif [ "$MERGEABLE" = "UNKNOWN" ]; then
-  echo "3. Mergeability still UNKNOWN after retries — check GitHub and retry"
-  FAILED=1
-else
-  echo "3. PR is not mergeable (status: $MERGEABLE)"
-  FAILED=1
-fi
-
-# 3b. If rebase changed HEAD, CI validated a commit that no longer exists.
-#     Re-check that CI has passed on the new HEAD before allowing merge.
-if [ "$PRE_REBASE_SHA" != "$POST_REBASE_SHA" ] && [ -n "$CI_WORKFLOW" ]; then
-  echo "3b. Rebase changed HEAD ($PRE_REBASE_SHA → $POST_REBASE_SHA) — re-validating CI..."
-  # Wait for CI to start on the new SHA (GitHub needs time after force-push)
-  sleep 10
-  NEW_CI_SHA=""
-  REBASE_POLL_MAX=60  # 60 × 10s = 10 min
-  for i in $(seq 1 $REBASE_POLL_MAX); do
-    NEW_CI_RUN=$(gh run list --branch "$BRANCH" \
-      --workflow "$CI_WORKFLOW" --repo "$REPO" --json headSha,conclusion \
-      --jq "[.[] | select(.headSha==\"$POST_REBASE_SHA\")][0] // empty" 2>/dev/null || true)
-    NEW_CI_CONCLUSION=$(echo "$NEW_CI_RUN" | jq -r '.conclusion // empty' 2>/dev/null || true)
-    if [ "$NEW_CI_CONCLUSION" = "success" ]; then
-      NEW_CI_SHA="$POST_REBASE_SHA"
-      break
-    elif [ -n "$NEW_CI_CONCLUSION" ] && [ "$NEW_CI_CONCLUSION" != "null" ]; then
-      # CI ran but didn't succeed
-      echo "3b. CI on rebased commit concluded: $NEW_CI_CONCLUSION"
-      break
-    fi
-    sleep 10
-  done
-  if [ "$NEW_CI_SHA" = "$POST_REBASE_SHA" ]; then
-    echo "3b. CI passed on rebased commit"
-  else
-    echo "3b. CI has not passed on rebased commit — cannot merge"
-    FAILED=1
-  fi
-fi
-
-# 4. PR description has no placeholders
-if echo "$PR_BODY_RAW" | grep -qiE '\[TODO\]|\[placeholder\]|\[fill in\]'; then
-  echo "4. PR description contains placeholder text"
-  FAILED=1
-else
-  echo "4. PR description looks complete"
-fi
-
-# 5. Check for new env vars (warn, don't block — only added lines)
-ENV_VARS=$(gh pr diff "$PR_NUMBER" --repo "$REPO" 2>/dev/null \
-  | grep '^+' | grep -oE 'process\.env\.[A-Z_]+' | sort -u || true)
-if [ -n "$ENV_VARS" ]; then
-  echo "5. New env vars detected — verify they are set in Vercel:"
-  echo "$ENV_VARS" | sed 's/^/   /'
-else
-  echo "5. No new env vars"
-fi
-
-echo ""
-if [ "$FAILED" -ne 0 ]; then
-  echo "FAILED: Release checks did not pass"
+if [ -z "$HEAD_SHA" ]; then
+  echo "ERROR: Could not determine PR head SHA"
   exit 1
 fi
 
-echo "All release checks passed"
+# Find an approval comment whose reviewed-sha marker matches the current HEAD.
+# The marker format is: <!-- agentic-dev:codex-review:v1 reviewed-sha:<SHA> -->
+APPROVAL=$(gh api "repos/$REPO/issues/$PR_NUMBER/comments" \
+  --jq --arg sha "$HEAD_SHA" '
+    [.[]
+      | select(.body | test("<!-- agentic-dev:codex-review:v1 reviewed-sha:" + $sha))
+      | select(.body | test("VERDICT:.*approved"; "i"))
+    ] | last // empty
+  ')
 
-# 6. Merge first, then update CHANGELOG on the base branch.
-#    Previous approach committed CHANGELOG before merge, which raced with
-#    concurrent merge gates. Now we merge first, then commit to base.
-echo ""
-echo "Merging PR #$PR_NUMBER..."
-gh pr merge "$PR_NUMBER" --repo "$REPO" --squash --delete-branch
-
-# 7. Auto-generate CHANGELOG entry on the base branch (post-merge).
-#    Runs only after successful merge — never pushes for a failed gate.
-TODAY=$(date +%Y-%m-%d)
-
-# Extract bullet points: lines starting with "- Added/Fixed/Changed/Removed:"
-# Sanitize: strip HTML tags and markdown links to prevent injection via PR body.
-CHANGELOG_BULLETS=$(echo "$PR_BODY_RAW" \
-  | grep -E '^\s*-\s*(Added|Fixed|Changed|Removed):' \
-  | sed 's/<[^>]*>//g' \
-  | sed -E 's/\[([^]]*)\]\([^)]*\)/\1/g' \
-  || true)
-if [ -z "$CHANGELOG_BULLETS" ]; then
-  CHANGELOG_BULLETS="- Changed: $SAFE_TITLE"
-fi
-
-CHANGELOG_ENTRY=$(printf "## %s — %s\n%s" "$TODAY" "$SAFE_TITLE" "$CHANGELOG_BULLETS")
-CHANGELOG_PATH="$AGENTIC_DEV_CHANGELOG_PATH"
-
-# Get current file content and SHA from the base branch (post-merge)
-EXISTING=$(gh api "repos/$REPO/contents/$CHANGELOG_PATH?ref=$BASE_BRANCH" \
-  --jq '{sha: .sha, content: .content}' 2>/dev/null || echo '{}')
-FILE_SHA=$(echo "$EXISTING" | jq -r '.sha // empty')
-EXISTING_CONTENT=$(echo "$EXISTING" | jq -r '.content // empty' | base64 -d 2>/dev/null || echo "# Changelog")
-
-# Build new content: header + new entry + rest
-HEADER=$(echo "$EXISTING_CONTENT" | head -1)
-REST=$(echo "$EXISTING_CONTENT" | tail -n +2)
-NEW_CONTENT=$(printf "%s\n\n%s\n%s" "$HEADER" "$CHANGELOG_ENTRY" "$REST")
-
-# Base64 encode — tr -d '\n' for cross-platform safety (macOS vs GNU)
-NEW_B64=$(printf '%s' "$NEW_CONTENT" | base64 | tr -d '\n')
-
-# Commit via GitHub Contents API to the base branch
-COMMIT_ARGS=(-X PUT \
-  -f message="docs: auto-update CHANGELOG for PR #$PR_NUMBER [skip ci]" \
-  -f content="$NEW_B64" \
-  -f branch="$BASE_BRANCH")
-[ -n "$FILE_SHA" ] && COMMIT_ARGS+=(-f sha="$FILE_SHA")
-
-gh api "repos/$REPO/contents/$CHANGELOG_PATH" "${COMMIT_ARGS[@]}" --silent
-echo "7. $CHANGELOG_PATH auto-updated on $BASE_BRANCH"
-
-# 8. Clean up worktree (if one exists for this PR branch)
-WORKTREE_PATH=$(git worktree list --porcelain \
-  | grep -B1 "branch refs/heads/$BRANCH" \
-  | head -1 | sed 's/^worktree //')
-if [ -n "$WORKTREE_PATH" ] && [ "$WORKTREE_PATH" != "$(git rev-parse --show-toplevel)" ]; then
-  git worktree remove "$WORKTREE_PATH" 2>/dev/null || true
-  git branch -d "$BRANCH" 2>/dev/null || true
-  echo "8. Cleaned up worktree: $WORKTREE_PATH"
+if [ -n "$APPROVAL" ]; then
+  COMMENT_ID=$(echo "$APPROVAL" | jq -r '.id')
+  echo "Codex review: approved (comment #$COMMENT_ID reviewed sha $HEAD_SHA)"
+  exit 0
 else
-  echo "8. No worktree found for branch $BRANCH"
-fi
+  # Distinguish between "no approval ever" and "approval for a different SHA"
+  ANY_APPROVAL=$(gh api "repos/$REPO/issues/$PR_NUMBER/comments" \
+    --jq '[.[] | select(.body | test("<!-- agentic-dev:codex-review:v1")) | select(.body | test("VERDICT:.*approved"; "i"))] | last // empty')
 
-echo ""
-echo "=== Merge Gate complete ==="
+  if [ -n "$ANY_APPROVAL" ]; then
+    STALE_SHA=$(echo "$ANY_APPROVAL" | jq -r '.body' \
+      | grep -oE 'reviewed-sha:[0-9a-f]{40}' | head -1 | sed 's/reviewed-sha://' || echo "unknown")
+    echo "Codex review: approval exists but for a different commit (approved sha $STALE_SHA, current sha $HEAD_SHA)"
+    echo "New commits were pushed after the review — re-review required"
+  else
+    echo "Codex review: no approved comment found — review has not been run"
+  fi
+  exit 1
+fi

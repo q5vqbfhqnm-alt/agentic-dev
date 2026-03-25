@@ -13,6 +13,9 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 source "$SCRIPT_DIR/config.sh"
 
 PR_NUMBER="${1:?Usage: codex-review.sh <PR_NUMBER>}"
+
+command -v jq >/dev/null 2>&1 || { echo "ERROR: jq is required but not installed"; exit 1; }
+
 REPO=$(gh repo view --json nameWithOwner --jq '.nameWithOwner')
 
 discover_linked_issues() {
@@ -27,10 +30,7 @@ discover_linked_issues() {
     return
   fi
 
-  bare_issues=$(printf '%s\n' "$body" | grep -oE '#[0-9]+' | tr -d '#' || true)
-  if [ -n "$bare_issues" ]; then
-    printf '%s\n' "$bare_issues" | awk 'NF && !seen[$0]++'
-  fi
+  # No bare-reference fallback — incidental #N mentions can pull in unrelated issues
 }
 
 # Verify we're on the PR branch, not preview/main
@@ -48,6 +48,9 @@ fi
 
 # Ensure base is fresh for accurate diff
 git fetch origin "$BASE_BRANCH" --quiet
+
+# Pin the head SHA now — we verify it again after Codex runs to detect mid-review pushes
+REVIEWED_SHA=$(git rev-parse HEAD)
 
 # Verify Codex is available and resolve the invocation to use for execution
 if command -v codex >/dev/null 2>&1; then
@@ -180,11 +183,20 @@ PROMPT
 echo "Streaming Codex terminal output to: $CODEX_LOG"
 echo "Tip: tail -f \"$CODEX_LOG\" from another terminal to watch live."
 CODEX_SANDBOX_ARGS=$(agentic_dev_codex_sandbox_args)
-if ! $CODEX_CMD exec $CODEX_SANDBOX_ARGS -o "$REVIEW_OUTPUT" "$(cat "$PROMPT_FILE")" 2>&1 | tee "$CODEX_LOG"; then
-  echo "ERROR: Codex exec failed (exit code $?)." >&2
+CODEX_EXIT=0
+$CODEX_CMD exec $CODEX_SANDBOX_ARGS -o "$REVIEW_OUTPUT" "$(cat "$PROMPT_FILE")" 2>&1 | tee "$CODEX_LOG" || CODEX_EXIT=$?
+if [ "$CODEX_EXIT" -ne 0 ]; then
+  echo "ERROR: Codex exec failed (exit code $CODEX_EXIT)." >&2
   gh pr comment "$PR_NUMBER" --body "<!-- agentic-dev:codex-review:v1 -->
 **Codex review failed** — \`codex exec\` exited non-zero. This is an infrastructure failure, not a review verdict. Re-run \`codex-review.sh\` or check Codex CLI / API key status."
   exit 3
+fi
+
+# Verify the PR head has not moved while Codex was running
+CURRENT_PR_SHA=$(gh pr view "$PR_NUMBER" --json headRefOid --jq '.headRefOid' 2>/dev/null || true)
+if [ -n "$CURRENT_PR_SHA" ] && [ "$CURRENT_PR_SHA" != "$REVIEWED_SHA" ]; then
+  echo "ERROR: PR head moved from $REVIEWED_SHA to $CURRENT_PR_SHA during review. Re-run review on the new commit." >&2
+  exit 5
 fi
 
 REVIEW_BODY=$(cat "$REVIEW_OUTPUT")
@@ -215,23 +227,28 @@ if [ ${#REVIEW_BODY} -gt 65000 ]; then
 ${VERDICT_LINE}"
 fi
 
-# Stamp with machine marker so merge-gate.sh can verify origin
-REVIEW_MARKER="<!-- agentic-dev:codex-review:v1 -->"
+# Stamp with machine marker (includes reviewed SHA for downstream binding)
+REVIEW_MARKER="<!-- agentic-dev:codex-review:v1 reviewed-sha:${REVIEWED_SHA} -->"
 REVIEW_BODY="${REVIEW_MARKER}
 ${REVIEW_BODY}"
 
-# Delete previous agentic-dev review comments to avoid noise accumulation
+# Collect old review comment IDs BEFORE posting — ensures new comment is live
+# before any deletes, so the PR is never left without a review artifact
 PREV_COMMENT_IDS=$(gh api "repos/$REPO/issues/$PR_NUMBER/comments" \
-  --jq '[.[] | select(.body | test("<!-- agentic-dev:codex-review:v1 -->")) | .id] | .[]' 2>/dev/null || true)
+  --jq '[.[] | select(.body | test("<!-- agentic-dev:codex-review:v1")) | .id] | .[]' 2>/dev/null || true)
+
+# Post new review comment
+printf '%s' "$REVIEW_BODY" > "$COMMENT_FILE"
+gh pr comment "$PR_NUMBER" --body-file "$COMMENT_FILE"
+
+# Now safe to delete old comments (new comment is already posted)
 for cid in $PREV_COMMENT_IDS; do
   gh api -X DELETE "repos/$REPO/issues/comments/$cid" --silent 2>/dev/null || true
 done
-
-# Post review as PR comment (file-based to avoid shell argument limits)
-printf '%s' "$REVIEW_BODY" > "$COMMENT_FILE"
-gh pr comment "$PR_NUMBER" --body-file "$COMMENT_FILE"
 echo ""
 echo "Codex verdict: $VERDICT_LINE"
+# Emit raw VERDICT line for review-agent parsing (grep '^VERDICT:')
+echo "$VERDICT_LINE"
 
 # Extract session ID for re-review (best-effort)
 # Codex prints "session id: <uuid>" in terminal output, not in the -o file.
@@ -253,15 +270,19 @@ _SESSION_DIR="$(git rev-parse --git-dir 2>/dev/null)/agentic-dev"
 _SAFE_BRANCH="${HEAD_BRANCH//\//--}"
 if mkdir -p "$_SESSION_DIR" 2>/dev/null; then
   _SESSION_FILE="$_SESSION_DIR/session-${_SAFE_BRANCH}.json"
-  cat > "$_SESSION_FILE" <<SESSIONJSON
-{
-  "pr_number": ${PR_NUMBER},
-  "branch": "${HEAD_BRANCH}",
-  "codex_session_id": "${CODEX_SESSION_ID:-none}",
-  "verdict": "$(echo "$VERDICT_LINE" | sed 's/^VERDICT:[[:space:]]*//')",
-  "round_completed": 1,
-  "round": $(if echo "$VERDICT_LINE" | grep -qi 'approved'; then echo 0; else echo 1; fi),
-  "updated_at": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-}
-SESSIONJSON
+  _VERDICT_TEXT=$(echo "$VERDICT_LINE" | sed 's/^VERDICT:[[:space:]]*//')
+  _ROUND=$(echo "$VERDICT_LINE" | grep -qi 'approved' && echo 0 || echo 1)
+  jq -n \
+    --argjson pr_number "$PR_NUMBER" \
+    --arg branch "$HEAD_BRANCH" \
+    --arg codex_session_id "${CODEX_SESSION_ID:-none}" \
+    --arg verdict "$_VERDICT_TEXT" \
+    --arg reviewed_sha "$REVIEWED_SHA" \
+    --argjson round_completed 1 \
+    --argjson round "$_ROUND" \
+    --arg updated_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+    '{pr_number: $pr_number, branch: $branch, codex_session_id: $codex_session_id,
+      verdict: $verdict, reviewed_sha: $reviewed_sha,
+      round_completed: $round_completed, round: $round, updated_at: $updated_at}' \
+    > "$_SESSION_FILE" 2>/dev/null || true
 fi

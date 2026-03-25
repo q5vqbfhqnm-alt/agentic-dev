@@ -40,7 +40,11 @@ fi
 # Truncate command for logging (first 120 chars)
 _CMD_SHORT="${COMMAND:0:120}"
 
-ALLOWED_BASES="${AGENTIC_DEV_BASE_BRANCH}|main|origin/${AGENTIC_DEV_BASE_BRANCH}|origin/main"
+# main is only a valid base for hotfix sessions — the orchestrator sets SESSION_TYPE=hotfix
+ALLOWED_BASES="${AGENTIC_DEV_BASE_BRANCH}|origin/${AGENTIC_DEV_BASE_BRANCH}"
+if [ "${SESSION_TYPE:-}" = "hotfix" ]; then
+  ALLOWED_BASES="${ALLOWED_BASES}|main|origin/main"
+fi
 
 # Check if a local base ref is behind its origin counterpart.
 # Blocks when the local ref exists but is strictly behind origin (i.e. not up-to-date).
@@ -77,8 +81,18 @@ if echo "$COMMAND" | grep -qE 'git\s+(checkout\s+-b|switch\s+-c)\s+'; then
   WORD_COUNT=$(echo "$COMMAND" | awk '{print NF}')
   BASE=$(echo "$COMMAND" | awk '{print $5}')
 
-  # No explicit base (only 4 words) → allow (defaults to HEAD)
+  # No explicit base → validate HEAD as the implicit base
   if [ "$WORD_COUNT" -le 4 ] || [ -z "$BASE" ]; then
+    IMPLICIT_BASE=$(git symbolic-ref --short HEAD 2>/dev/null || echo "")
+    if [ -n "$IMPLICIT_BASE" ] && ! echo "$IMPLICIT_BASE" | grep -qE "^($ALLOWED_BASES)$"; then
+      _hook_log "blocked" "reason=implicit-wrong-base base=$IMPLICIT_BASE cmd=$_CMD_SHORT"
+      echo "BLOCKED: Current branch '$IMPLICIT_BASE' is not an allowed base. Switch to '${AGENTIC_DEV_BASE_BRANCH}' before creating a branch." >&2
+      exit 2
+    fi
+    if [ -n "$IMPLICIT_BASE" ] && ! check_stale_base "$IMPLICIT_BASE"; then
+      _hook_log "blocked" "reason=implicit-stale-base base=$IMPLICIT_BASE cmd=$_CMD_SHORT"
+      exit 2
+    fi
     exit 0
   fi
 
@@ -111,8 +125,18 @@ if echo "$COMMAND" | grep -qE 'git\s+worktree\s+add\s+'; then
   ARG_COUNT=$(echo "$ARGS" | awk '{print NF}')
   BASE=$(echo "$ARGS" | awk '{print $2}')
 
-  # Only path, no base → allow (defaults to HEAD)
+  # Only path, no base → validate HEAD as the implicit base
   if [ "$ARG_COUNT" -le 1 ] || [ -z "$BASE" ]; then
+    IMPLICIT_BASE=$(git symbolic-ref --short HEAD 2>/dev/null || echo "")
+    if [ -n "$IMPLICIT_BASE" ] && ! echo "$IMPLICIT_BASE" | grep -qE "^($ALLOWED_BASES)$"; then
+      _hook_log "blocked" "reason=worktree-implicit-wrong-base base=$IMPLICIT_BASE cmd=$_CMD_SHORT"
+      echo "BLOCKED: Current branch '$IMPLICIT_BASE' is not an allowed base. Switch to '${AGENTIC_DEV_BASE_BRANCH}' before creating a worktree branch." >&2
+      exit 2
+    fi
+    if [ -n "$IMPLICIT_BASE" ] && ! check_stale_base "$IMPLICIT_BASE"; then
+      _hook_log "blocked" "reason=worktree-implicit-stale-base base=$IMPLICIT_BASE cmd=$_CMD_SHORT"
+      exit 2
+    fi
     exit 0
   fi
 

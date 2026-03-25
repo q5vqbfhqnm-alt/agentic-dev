@@ -60,23 +60,19 @@ AGENTIC_DEV_PROTECTED_BRANCHES="${AGENTIC_DEV_PROTECTED_BRANCHES:-$(_cfg protect
 AGENTIC_DEV_PROTECTED_BRANCHES="${AGENTIC_DEV_PROTECTED_BRANCHES:-main|${AGENTIC_DEV_BASE_BRANCH}}"
 
 # ── Build system commands ───────────────────────────────────────────────────
-# Auto-detected from package.json scripts, then hardcoded defaults.
-# Environment variables always win.
+# Auto-detected from package.json scripts only. No hardcoded npm fallbacks —
+# an empty value means the script is absent in this repo and will be skipped.
+# Environment variables always win. npm install is the only universal default
+# because it operates on the project, not on a named script that may not exist.
 AGENTIC_DEV_TEST_CMD="${AGENTIC_DEV_TEST_CMD:-$(_detect_pkg_script "test")}"
-AGENTIC_DEV_TEST_CMD="${AGENTIC_DEV_TEST_CMD:-npm test}"
 AGENTIC_DEV_LINT_CMD="${AGENTIC_DEV_LINT_CMD:-$(_detect_pkg_script "lint")}"
-AGENTIC_DEV_LINT_CMD="${AGENTIC_DEV_LINT_CMD:-npm run lint}"
 AGENTIC_DEV_BUILD_CMD="${AGENTIC_DEV_BUILD_CMD:-$(_detect_pkg_script "build")}"
-AGENTIC_DEV_BUILD_CMD="${AGENTIC_DEV_BUILD_CMD:-npm run build}"
 AGENTIC_DEV_INSTALL_CMD="${AGENTIC_DEV_INSTALL_CMD:-npm install}"
 AGENTIC_DEV_DEV_CMD="${AGENTIC_DEV_DEV_CMD:-$(_detect_pkg_script "dev")}"
-AGENTIC_DEV_DEV_CMD="${AGENTIC_DEV_DEV_CMD:-npm run dev}"
 
-# E2E: probe for common script names in decreasing specificity
+# E2E: probe for common script names in decreasing specificity; empty if absent
 AGENTIC_DEV_E2E_CMD="${AGENTIC_DEV_E2E_CMD:-$(_detect_pkg_script "test:e2e:full:local" "test:e2e:full" "test:e2e" "e2e")}"
-AGENTIC_DEV_E2E_CMD="${AGENTIC_DEV_E2E_CMD:-npm run test:e2e}"
 AGENTIC_DEV_E2E_SMOKE_CMD="${AGENTIC_DEV_E2E_SMOKE_CMD:-$(_detect_pkg_script "test:e2e:smoke" "e2e:smoke")}"
-AGENTIC_DEV_E2E_SMOKE_CMD="${AGENTIC_DEV_E2E_SMOKE_CMD:-}"
 
 AGENTIC_DEV_CHANGELOG_PATH="${AGENTIC_DEV_CHANGELOG_PATH:-$(_cfg changelogPath)}"
 AGENTIC_DEV_CHANGELOG_PATH="${AGENTIC_DEV_CHANGELOG_PATH:-$(_agentic_dev_default_changelog_path)}"
@@ -101,8 +97,21 @@ AGENTIC_DEV_E2E_PATHS="${AGENTIC_DEV_E2E_PATHS:-}"
 # Returns the appropriate sandbox flag for the current environment.
 # Uses -s read-only when bwrap is available; falls back to
 # --dangerously-bypass-approvals-and-sandbox in containers where bwrap is absent.
+# Resolves Codex via the same two-step check used in the review scripts so that
+# npx-only environments get the correct result.
 agentic_dev_codex_sandbox_args() {
-  if codex sandbox linux -- true >/dev/null 2>&1; then
+  local _probe_cmd
+  if command -v codex >/dev/null 2>&1; then
+    _probe_cmd="codex"
+  elif npx @openai/codex --version >/dev/null 2>&1; then
+    _probe_cmd="npx @openai/codex"
+  else
+    # Codex not resolvable — caller will surface this; return bypass so the
+    # flag is syntactically valid even if Codex itself is absent.
+    echo "--dangerously-bypass-approvals-and-sandbox"
+    return
+  fi
+  if $_probe_cmd sandbox linux -- true >/dev/null 2>&1; then
     echo "-s read-only"
   else
     echo "--dangerously-bypass-approvals-and-sandbox"
@@ -114,7 +123,7 @@ AGENTIC_DEV_MAX_REVIEW_ROUNDS="${AGENTIC_DEV_MAX_REVIEW_ROUNDS:-$(_cfg maxReview
 AGENTIC_DEV_MAX_REVIEW_ROUNDS="${AGENTIC_DEV_MAX_REVIEW_ROUNDS:-3}"
 
 # ── CI workflow discovery ────────────────────────────────────────────────
-# Unified helper used by both merge-gate.sh and ci-watch.sh.
+# Unified CI workflow discovery helper.
 # Returns the resolved workflow name (or empty if none found).
 # Usage: WORKFLOW=$(agentic_dev_discover_ci_workflow <branch> <repo>)
 agentic_dev_discover_ci_workflow() {

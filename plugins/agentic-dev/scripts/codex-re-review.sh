@@ -20,27 +20,24 @@ PR_NUMBER="${1:?Usage: codex-re-review.sh <PR_NUMBER> <CODEX_SESSION_ID> <ROUND>
 CODEX_SESSION_ID="${2:?Missing CODEX_SESSION_ID}"
 ROUND="${3:?Missing round number}"
 
+command -v jq >/dev/null 2>&1 || { echo "ERROR: jq is required but not installed"; exit 1; }
+
 discover_linked_issues() {
   local body="$1"
-  local closing_issues bare_issues
-
-  closing_issues=$(printf '%s\n' "$body" \
+  # Only explicit closing keywords — no bare #N fallback to avoid pulling in unrelated issues
+  printf '%s\n' "$body" \
     | grep -ioE '(closes|fixes|resolves|close|fix|resolve)[[:space:]]+#[0-9]+' \
-    | grep -oE '[0-9]+' || true)
-  if [ -n "$closing_issues" ]; then
-    printf '%s\n' "$closing_issues" | awk 'NF && !seen[$0]++'
-    return
-  fi
-
-  bare_issues=$(printf '%s\n' "$body" | grep -oE '#[0-9]+' | tr -d '#' || true)
-  if [ -n "$bare_issues" ]; then
-    printf '%s\n' "$bare_issues" | awk 'NF && !seen[$0]++'
-  fi
+    | grep -oE '[0-9]+' \
+    | awk 'NF && !seen[$0]++' || true
 }
 
 # Hard guard: reject rounds above the configured maximum
-MAX_ROUNDS="$AGENTIC_DEV_MAX_REVIEW_ROUNDS"
-if [ "$ROUND" -gt "$MAX_ROUNDS" ] 2>/dev/null; then
+MAX_ROUNDS="${AGENTIC_DEV_MAX_REVIEW_ROUNDS:-3}"
+if ! [[ "$MAX_ROUNDS" =~ ^[0-9]+$ ]]; then
+  echo "ERROR: AGENTIC_DEV_MAX_REVIEW_ROUNDS is not a valid integer: '$MAX_ROUNDS'"
+  exit 1
+fi
+if [ "$ROUND" -gt "$MAX_ROUNDS" ]; then
   echo "ERROR: Round $ROUND exceeds maximum ($MAX_ROUNDS). Escalate to user."
   exit 1
 fi
@@ -60,6 +57,9 @@ if [ "$CURRENT_BRANCH" != "$HEAD_BRANCH" ]; then
 fi
 
 git fetch origin "$BASE_BRANCH" --quiet
+
+# Pin the head SHA now — verify again after Codex to detect mid-review pushes
+REVIEWED_SHA=$(git rev-parse HEAD)
 
 # Verify Codex is available and resolve the invocation to use for execution
 if command -v codex >/dev/null 2>&1; then
@@ -111,8 +111,8 @@ cat > "$PROMPT_FILE" <<PROMPT
 Re-review this pull request.
 
 Your job now:
-1. Treat the latest linked issue as the authoritative spec — it supersedes prior-round assumptions.
-2. Verify each previous BLOCKER/STRONG finding is fixed against the latest spec. Mark as RESOLVED or STILL OPEN.
+1. Use the PR description as the authoritative spec. Linked issue(s) are supporting context only.
+2. Verify each previous BLOCKER/STRONG finding is fixed against the PR description. Mark as RESOLVED or STILL OPEN.
 3. You may raise NEW findings only if they are BLOCKER severity (would cause data loss, security breach, or runtime crash). Do NOT raise new STRONG or NICE findings — the scope of this review is to verify fixes, not to expand the review.
 
 Output exactly:
@@ -175,6 +175,25 @@ if [ "$CODEX_FAILED" -ne 0 ]; then
   exit 3
 fi
 
+# Verify the PR head has not moved while Codex was running
+CURRENT_PR_SHA=$(gh pr view "$PR_NUMBER" --json headRefOid --jq '.headRefOid' 2>/dev/null || true)
+if [ -n "$CURRENT_PR_SHA" ] && [ "$CURRENT_PR_SHA" != "$REVIEWED_SHA" ]; then
+  echo "ERROR: PR head moved from $REVIEWED_SHA to $CURRENT_PR_SHA during review. Re-run review on the new commit." >&2
+  exit 5
+fi
+
+# After fallback exec, try to recover a new session ID so subsequent rounds can resume
+if [ "$CODEX_SESSION_ID" = "none" ] || [ -z "$CODEX_SESSION_ID" ]; then
+  RECOVERED_ID=$(sed $'s/\033\\[[0-9;]*m//g' "$CODEX_LOG" | grep -oE 'session id: [0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}' | head -1 | sed 's/session id: //' || true)
+  if [ -z "$RECOVERED_ID" ]; then
+    RECOVERED_ID=$($CODEX_CMD resume --last --json 2>/dev/null | jq -r '.id // empty' || true)
+  fi
+  if [ -n "$RECOVERED_ID" ]; then
+    CODEX_SESSION_ID="$RECOVERED_ID"
+    echo "Recovered session ID from fallback run: $CODEX_SESSION_ID"
+  fi
+fi
+
 REVIEW_BODY=$(cat "$REVIEW_OUTPUT")
 
 # Extract verdict before any truncation — it lives at the end of the output
@@ -201,23 +220,29 @@ if [ ${#REVIEW_BODY} -gt 65000 ]; then
 ${VERDICT_LINE}"
 fi
 
-# Stamp with machine marker so merge-gate.sh can verify origin
-REVIEW_MARKER="<!-- agentic-dev:codex-review:v1 -->"
+# Stamp with machine marker (includes reviewed SHA for downstream binding)
+REVIEW_MARKER="<!-- agentic-dev:codex-review:v1 reviewed-sha:${REVIEWED_SHA} -->"
 REVIEW_BODY="${REVIEW_MARKER}
 ${REVIEW_BODY}"
 
-# Delete previous agentic-dev review comments to avoid noise accumulation
+# Collect old review comment IDs BEFORE posting — ensures new comment is live
+# before any deletes, so the PR is never left without a review artifact
 PREV_COMMENT_IDS=$(gh api "repos/$REPO/issues/$PR_NUMBER/comments" \
-  --jq '[.[] | select(.body | test("<!-- agentic-dev:codex-review:v1 -->")) | .id] | .[]' 2>/dev/null || true)
-for cid in $PREV_COMMENT_IDS; do
-  gh api -X DELETE "repos/$REPO/issues/comments/$cid" --silent 2>/dev/null || true
-done
+  --jq '[.[] | select(.body | test("<!-- agentic-dev:codex-review:v1")) | .id] | .[]' 2>/dev/null || true)
 
 # Post review as PR comment (file-based to avoid shell argument limits)
 printf '%s' "$REVIEW_BODY" > "$COMMENT_FILE"
 gh pr comment "$PR_NUMBER" --body-file "$COMMENT_FILE"
+
+# Now safe to delete old comments (new comment is already posted)
+for cid in $PREV_COMMENT_IDS; do
+  gh api -X DELETE "repos/$REPO/issues/comments/$cid" --silent 2>/dev/null || true
+done
 echo ""
 echo "Codex verdict: $VERDICT_LINE"
+# Emit raw VERDICT line for review-agent parsing (grep '^VERDICT:')
+echo "$VERDICT_LINE"
+echo "CODEX_SESSION_ID=${CODEX_SESSION_ID:-none}"
 
 # Persist session state to .git/agentic-dev/session-{branch}.json (best-effort).
 # Sanitize branch name: replace / with -- so fix/foo becomes session-fix--foo.json
@@ -225,15 +250,17 @@ _SESSION_DIR="$(git rev-parse --git-dir 2>/dev/null)/agentic-dev"
 _SAFE_BRANCH="${HEAD_BRANCH//\//--}"
 if mkdir -p "$_SESSION_DIR" 2>/dev/null; then
   _SESSION_FILE="$_SESSION_DIR/session-${_SAFE_BRANCH}.json"
-  cat > "$_SESSION_FILE" <<SESSIONJSON
-{
-  "pr_number": ${PR_NUMBER},
-  "branch": "${HEAD_BRANCH}",
-  "codex_session_id": "${CODEX_SESSION_ID:-none}",
-  "verdict": "$(echo "$VERDICT_LINE" | sed 's/^VERDICT:[[:space:]]*//')",
-  "round_completed": ${ROUND},
-  "round": $(if echo "$VERDICT_LINE" | grep -qi 'approved'; then echo 0; else echo "${ROUND}"; fi),
-  "updated_at": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-}
-SESSIONJSON
+  _VERDICT_TEXT=$(echo "$VERDICT_LINE" | sed 's/^VERDICT:[[:space:]]*//')
+  _ROUND_NEXT=$(echo "$VERDICT_LINE" | grep -qi 'approved' && echo 0 || echo "$ROUND")
+  jq -n \
+    --argjson pr_number "$PR_NUMBER" \
+    --arg branch "$HEAD_BRANCH" \
+    --arg codex_session_id "${CODEX_SESSION_ID:-none}" \
+    --arg verdict "$_VERDICT_TEXT" \
+    --argjson round_completed "$ROUND" \
+    --argjson round "$_ROUND_NEXT" \
+    --arg updated_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+    '{pr_number: $pr_number, branch: $branch, codex_session_id: $codex_session_id,
+      verdict: $verdict, round_completed: $round_completed, round: $round, updated_at: $updated_at}' \
+    > "$_SESSION_FILE" 2>/dev/null || true
 fi

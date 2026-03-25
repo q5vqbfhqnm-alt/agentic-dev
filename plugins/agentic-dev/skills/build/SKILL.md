@@ -12,51 +12,71 @@ Implementation guidelines for the dev agent. Follow these when writing code.
 
 ### Full path (SESSION_PATH = full)
 
-1. If `$AGENTIC_DEV_ADR_PATH` is set, read the ADR file at that path —
-   scan the index, then read the 3 most relevant entries. If the variable
-   is not set or the file doesn't exist, skip to step 2.
-2. Read the GitHub Issue in full: `gh issue view [number]`
-3. If ADR entries were found, list those decisions and state how your
-   approach matches them. If you intend to deviate, say so now. Keep to
-   3-5 lines.
-4. **Trace affected paths** — map the execution flow from entry point through
-   to data persistence. Identify every file in the blast radius. For large
-   features, spawn 2-3 parallel Explore agents each focused on a different
-   subsystem (e.g. UI layer, API route, external service integration).
-5. **State your approach** — 3-5 lines describing the implementation approach
-   and why it fits existing codebase patterns. One confident recommendation,
-   not multiple options.
+1. **ADR check** — if `$AGENTIC_DEV_ADR_PATH` is set and the file exists,
+   read it. The ADR file is expected to be a single markdown document with a
+   table or index at the top followed by numbered decision sections
+   (`## ADR-N — Title` or similar). Scan the index, then read the 3 entries
+   most relevant to this task. If the variable is unset or the file doesn't
+   exist, skip.
+
+2. **Read the issue** — `gh issue view [number] --comments` (include comments
+   in case normative context was added there).
+
+3. **State your plan** — write 3-5 lines as a note to yourself in this session
+   describing: (a) how your approach aligns with any ADR decisions found, and
+   (b) which files you expect to change. If you intend to deviate from an ADR,
+   state that explicitly now. This is internal reasoning, not user-facing output.
+
+4. **Trace affected paths** — read the relevant files to map the execution
+   flow from entry point through to data persistence. Identify every file in
+   the blast radius before writing anything. For large features, use multiple
+   sequential Explore passes (UI layer, then API layer, then persistence) rather
+   than guessing from filenames.
+
+5. **Confirm scope** — if the blast radius is materially larger than the AC
+   suggests, flag it to the orchestrator before proceeding.
 
 ### Trivial path (SESSION_PATH = trivial)
 
 1. Read the file(s) you intend to change.
-2. State the change in 1-2 lines (what + where).
+2. Confirm the scope contract matches what you see — if it doesn't, escalate.
 
 ## Constraints
 
-- Do not build anything not in the issue (full path) or beyond the user's
-  described change (trivial path)
+- Do not build anything not in the issue (full path) or beyond the scope
+  contract (trivial path)
 - Do not refactor unrelated code in this PR
 - Do not introduce new dependencies unless required — justify any new
   dependency in the PR description
-- Follow existing patterns in the codebase. If you think a different
-  approach is better, note it in the PR description but implement the
-  existing pattern unless told otherwise
-- Branch from `$AGENTIC_DEV_BASE_BRANCH` (default: `preview`) by default.
-  Exception: hotfix branches branch from `main`.
-  Branch name: `[feature|fix|refactor]/[short-name]` or `hotfix/[short-name]`
+- Follow existing patterns in the codebase. If a different approach is
+  better, note it in the PR description but implement the existing pattern
+  unless told otherwise
+
+## Branch targeting
+
+- Default: branch from `$AGENTIC_DEV_BASE_BRANCH`
+- Hotfix: branch from `main` — only when the orchestrator explicitly passes
+  `SESSION_TYPE=hotfix`. The dev agent does not classify a task as hotfix
+  on its own.
+- Branch name: `feature/`, `fix/`, `refactor/`, or `hotfix/` prefix + short name
+
+## Ambiguous decisions
+
+For a scope-defining gap (something that determines what gets built or changes
+acceptance criteria), pause and return the question to the orchestrator. The
+orchestrator will ask the user. Document the answer in the PR description
+under Key decisions.
+
+For an execution-safe gap (copy wording, minor placement, implementation
+detail that doesn't affect AC), make a reasonable default and document it
+as an assumption in the PR description. Do not pause.
 
 ## Migrations
 
 If the change requires a schema or database migration:
 
 - Write the migration
-- Confirm it is backwards compatible
+- Verify it is backwards compatible (old code can run against new schema)
 - Note it in the PR description with a rollback plan
 - Never run an irreversible migration without flagging it explicitly —
   irreversible migrations require review before merge
-
-## Ambiguous decisions
-
-Stop. Do not assume. Ask the question in chat before proceeding.
-Document the answer in the PR description under Key decisions.
