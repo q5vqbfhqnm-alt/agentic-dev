@@ -1,5 +1,23 @@
 # Changelog
 
+## 1.7.1 — 2026-03-25
+
+Bats test suite, merge-gate reliability fixes, and orchestrator improvements.
+
+### Added
+- Bats test suite covering all hook checks and merge-gate paths (pre-tool-use, merge-gate, config-changelog-path)
+- orchestrator: spec-superseded finding classification — updates issue ACs and PR description when implementation intentionally diverges from spec, then re-reviews without a dev cycle or cycle increment
+
+### Fixed
+- merge-gate.sh: resolve REPO and HEAD_SHA via local jq instead of gh --jq; fetch all comments once and filter locally — fixes bats tests and reduces API calls from 3 to 1
+- orchestrator: resolve OVERRIDE_SCRIPT via git rev-parse --show-toplevel so the path shown to the user is always reachable from their terminal
+- orchestrator: guard gh issue edit behind ISSUE_NUMBER check — spec-superseded branch was unsafe on trivial path
+
+### Changed
+- Removed tests/ from .gitignore — test suite is now part of the repo
+- Removed stale docs/template-contract.md
+- Updated repo owner to cansva
+
 ## 1.7.0 — 2026-03-25
 
 User override path, hook consolidation, and E2E cleanup.

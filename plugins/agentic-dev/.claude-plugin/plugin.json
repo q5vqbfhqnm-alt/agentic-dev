@@ -1,11 +1,11 @@
 {
   "name": "agentic-dev",
-  "version": "1.7.0",
+  "version": "1.7.1",
   "description": "Agentic dev workflow: spec → build → test → ship → review → merge. Includes independent Codex review gate.",
   "author": {
-    "name": "q5vqbfhqnm-alt"
+    "name": "cansva"
   },
-  "repository": "https://github.com/q5vqbfhqnm-alt/agentic-dev",
+  "repository": "https://github.com/cansva/agentic-dev",
   "license": "SEE LICENSE IN README",
   "keywords": [
     "dev",
