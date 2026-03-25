@@ -1,6 +1,5 @@
 #!/usr/bin/env bash
 # Usage: release.sh <version> <changelog_body_file>
-# All three JSON/MD updates + commit + tag + GitHub release.
 set -euo pipefail
 
 VERSION="${1:?version required}"
@@ -11,31 +10,26 @@ cd "$REPO_ROOT"
 
 PLUGIN_JSON="plugins/agentic-dev/.claude-plugin/plugin.json"
 MARKETPLACE_JSON=".claude-plugin/marketplace.json"
-CHANGELOG="CHANGELOG.md"
+CHANGELOG="${AGENTIC_DEV_CHANGELOG_PATH:-CHANGELOG.md}"
 
-# 1. Bump plugin.json
 tmp=$(mktemp)
+
 jq --arg v "$VERSION" '.version = $v' "$PLUGIN_JSON" > "$tmp" && mv "$tmp" "$PLUGIN_JSON"
 
-# 2. Bump marketplace.json
-tmp=$(mktemp)
 jq --arg v "$VERSION" '(.plugins[] | select(.name == "agentic-dev")).version = $v' "$MARKETPLACE_JSON" > "$tmp" && mv "$tmp" "$MARKETPLACE_JSON"
 
-# 3. Prepend CHANGELOG entry
-TODAY=$(date +%Y-%m-%d)
-HEADER="## ${VERSION} — ${TODAY}"
-BODY=$(cat "$NOTES_FILE")
-ENTRY="${HEADER}"$'\n\n'"${BODY}"$'\n'
+{
+  echo "# Changelog"
+  echo ""
+  echo "## ${VERSION} — $(date +%Y-%m-%d)"
+  echo ""
+  cat "$NOTES_FILE"
+  echo ""
+  tail -n +3 "$CHANGELOG"
+} > "$tmp" && mv "$tmp" "$CHANGELOG"
 
-# Insert after "# Changelog\n"
-tmp=$(mktemp)
-awk -v entry="$ENTRY" '
-  /^# Changelog/ { print; found=1; next }
-  found && /^$/ { print; print entry; found=0; next }
-  { print }
-' "$CHANGELOG" > "$tmp" && mv "$tmp" "$CHANGELOG"
+rm -f "$tmp"
 
-# 4. Commit + tag + release
 git add "$PLUGIN_JSON" "$MARKETPLACE_JSON" "$CHANGELOG"
 git commit -m "chore(release): agentic-dev v${VERSION}"
 git tag "v${VERSION}"

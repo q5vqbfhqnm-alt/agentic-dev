@@ -17,6 +17,18 @@ bash plugins/agentic-dev/scripts/init.sh
 
 This verifies prerequisites, detects your build system, and scaffolds GitHub templates if missing.
 
+### Dev container
+
+A devcontainer is included for working on agentic-dev itself. Open this repo in VS Code and choose **Reopen in Container**. The container includes Claude Code, Codex CLI, `gh`, `git`, and `jq`, and persists `~/.claude` and `~/.config/gh` across rebuilds so you only authenticate once.
+
+Required env vars (set locally before opening the container):
+
+```
+ANTHROPIC_API_KEY
+OPENAI_API_KEY
+GH_TOKEN
+```
+
 ## Prerequisites
 
 - [Claude Code](https://claude.com/claude-code)

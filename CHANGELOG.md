@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.6.0 — 2026-03-25
+
+Docker devcontainer and /release automation.
+
+### Developer tooling
+- Added: Dockerfile — node:22-slim image with Claude Code, Codex CLI, gh, git, jq; runs as non-root `node` user
+- Added: devcontainer.json — VS Code "Reopen in Container" support with claude-code + codespaces extensions; persists `~/.claude` and `~/.config/gh` as named volumes across rebuilds
+- Added: docker-compose.yml — consumer project mount, API key passthrough, persisted volumes
+- Added: `/release` slash command in CLAUDE.md — Claude determines semver bump from git log, writes changelog entry, calls release script
+- Added: `.claude/scripts/release.sh` — bumps plugin.json + marketplace.json + CHANGELOG.md, commits, tags, pushes, creates GitHub release
+
 ## 1.5.1 — 2026-03-24
 
 Fix stale review round counter blocking merges on already-approved PRs.
