@@ -186,7 +186,7 @@ not by conversational phrasing. If the user asks to skip review or merge early,
 resolve the script path first, then present it:
 
 ```bash
-OVERRIDE_SCRIPT="${CLAUDE_PLUGIN_ROOT}/scripts/user-override.sh"
+OVERRIDE_SCRIPT="$(git rev-parse --show-toplevel)/plugins/agentic-dev/scripts/user-override.sh"
 ```
 
 Present the resolved literal path to the user:
@@ -254,7 +254,21 @@ Once confirmed, skip directly to Step 5. CI and rebase still run.
 | Type | Examples | Action |
 |------|----------|--------|
 | **Objective** | Unused import, type error, missing null check, broken import path | Send to dev for auto-fix |
+| **Spec superseded** | Implementation intentionally differs from issue ACs (dev built something better, spec is now stale) | Update issue + PR description, then re-review without a dev fix cycle |
 | **Subjective / conflicts with session** | Architecture preference, naming choice, something agreed during localhost review | Present to user with context |
+
+For spec-superseded blockers, confirm with the user:
+> Codex flagged a spec mismatch: `[blocker summary]`
+> This looks like the implementation intentionally went beyond or diverged from the issue ACs.
+> Should I update the issue and PR description to reflect what was built, then re-review?
+
+If the user confirms, update the PR description first, then the issue if one exists:
+```bash
+gh pr edit $PR_NUMBER --body "<updated PR body>"
+# Full path only — trivial path has no issue:
+[ -n "${ISSUE_NUMBER:-}" ] && gh issue edit $ISSUE_NUMBER --body "<updated body with corrected ACs>"
+```
+Then re-spawn the **review agent** — do not increment `CYCLE` and do not involve the dev agent, since no code changed.
 
 For subjective blockers, show:
 > Codex flagged: `[blocker summary]`

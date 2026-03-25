@@ -28,21 +28,23 @@ set -euo pipefail
 # Usage:  scripts/merge-gate.sh <PR_NUMBER>
 
 PR_NUMBER="${1:?Usage: merge-gate.sh <PR_NUMBER>}"
-REPO=$(gh repo view --json nameWithOwner --jq '.nameWithOwner')
+REPO=$(gh repo view --json nameWithOwner | jq -r '.nameWithOwner')
 
 # Get the current PR head SHA
 HEAD_SHA=$(gh pr view "$PR_NUMBER" --repo "$REPO" \
-  --json headRefOid --jq '.headRefOid')
+  --json headRefOid | jq -r '.headRefOid')
 
 if [ -z "$HEAD_SHA" ]; then
   echo "ERROR: Could not determine PR head SHA"
   exit 1
 fi
 
+# Fetch all comments once; filter locally so test stubs don't need to implement --jq.
+COMMENTS=$(gh api "repos/$REPO/issues/$PR_NUMBER/comments")
+
 # Path 1: Codex approval comment matching the current HEAD.
 # Marker format: <!-- agentic-dev:codex-review:v1 reviewed-sha:<SHA> -->
-APPROVAL=$(gh api "repos/$REPO/issues/$PR_NUMBER/comments" \
-  --jq --arg sha "$HEAD_SHA" '
+APPROVAL=$(echo "$COMMENTS" | jq --arg sha "$HEAD_SHA" '
     [.[]
       | select(.body | test("<!-- agentic-dev:codex-review:v1 reviewed-sha:" + $sha))
       | select(.body | test("VERDICT:.*approved"; "i"))
@@ -58,8 +60,7 @@ fi
 # Path 2: User override comment matching the current HEAD.
 # Marker format: <!-- agentic-dev:user-override:v1 reviewed-sha:<SHA> -->
 # Only reachable after the user runs scripts/user-override.sh from their terminal.
-USER_OVERRIDE=$(gh api "repos/$REPO/issues/$PR_NUMBER/comments" \
-  --jq --arg sha "$HEAD_SHA" '
+USER_OVERRIDE=$(echo "$COMMENTS" | jq --arg sha "$HEAD_SHA" '
     [.[]
       | select(.body | test("<!-- agentic-dev:user-override:v1 reviewed-sha:" + $sha))
     ] | last // empty
@@ -72,8 +73,7 @@ if [ -n "$USER_OVERRIDE" ]; then
 fi
 
 # Neither path matched — distinguish for diagnostics
-ANY_CODEX=$(gh api "repos/$REPO/issues/$PR_NUMBER/comments" \
-  --jq '[.[] | select(.body | test("<!-- agentic-dev:codex-review:v1")) | select(.body | test("VERDICT:.*approved"; "i"))] | last // empty')
+ANY_CODEX=$(echo "$COMMENTS" | jq '[.[] | select(.body | test("<!-- agentic-dev:codex-review:v1")) | select(.body | test("VERDICT:.*approved"; "i"))] | last // empty')
 
 if [ -n "$ANY_CODEX" ]; then
   STALE_SHA=$(echo "$ANY_CODEX" | jq -r '.body' \
