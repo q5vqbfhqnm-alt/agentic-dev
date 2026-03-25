@@ -21,6 +21,9 @@ RUN npm install -g @anthropic-ai/claude-code @openai/codex
 # (can't bake into ~/.claude directly — that dir is a mounted volume at runtime)
 COPY --chown=node:node .devcontainer/claude-settings.json /opt/agentic-dev-settings.json
 
+# Pre-create ~/.claude owned by node so the named volume initializes with correct permissions
+RUN mkdir -p /home/node/.claude && chown node:node /home/node/.claude
+
 USER node
 
 # Copy workflow files into the image
