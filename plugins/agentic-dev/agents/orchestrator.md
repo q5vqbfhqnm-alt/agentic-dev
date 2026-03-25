@@ -116,12 +116,44 @@ Do not re-fetch PR metadata unless the PR was force-pushed (after a rebase).
 
 ## Cycle counter
 
-Maintain a single integer `CYCLE=0`. Increment it **once per push** (whether the
-push is a fix from the dev agent or a rebase). This counter is shared across
-Codex review loops, CI failure loops, and rebase loops.
+Maintain a single integer `CYCLE=0`. This counter is shared across Codex review
+loops, CI failure loops, and rebase loops.
+
+**Increment `CYCLE` only when the PR's HEAD SHA changes.** After every dev-agent
+or rebase operation that is expected to push, compare the PR's `headRefOid`
+before and after:
+
+```bash
+SHA_BEFORE=$(gh pr view $PR_NUMBER --repo "$REPO" --json headRefOid --jq '.headRefOid')
+# ... invoke dev agent or perform rebase ...
+SHA_AFTER=$(gh pr view $PR_NUMBER --repo "$REPO" --json headRefOid --jq '.headRefOid')
+if [ "$SHA_AFTER" != "$SHA_BEFORE" ]; then
+  CYCLE=$((CYCLE + 1))
+  # Re-fetch PR metadata — HEAD changed
+  PR_DATA=$(gh pr view $PR_NUMBER --repo "$REPO" --json headRefName,baseRefName,title,body)
+fi
+```
+
+This ensures CYCLE reflects actual push events, not dev-agent invocations.
+A failed push, a return without push, or multiple pushes within one dev-agent
+run all produce one increment (on the next SHA comparison).
 
 When `CYCLE` reaches 3, stop the automated loop and use `AskUserQuestion`
-(see below). Reset `CYCLE` to 0 only if the user explicitly asks to start fresh.
+(see Escalation). Reset `CYCLE` to 0 only if the user explicitly asks to start fresh.
+
+---
+
+## Escalation via AskUserQuestion
+
+`AskUserQuestion` is a tool call that pauses execution and waits for the user to
+respond before continuing. Use it whenever the automated loop cannot proceed
+without human judgement. Syntax:
+
+```
+AskUserQuestion(question="<your question here>")
+```
+
+The tool blocks until the user replies. Use the reply to decide the next step.
 
 ---
 
@@ -181,13 +213,39 @@ increment `CYCLE` → re-spawn **review agent** with `CODEX_SESSION_ID` for re-r
 
 After Codex review returns `approved`, wait for CI on the current HEAD.
 
+Resolve the head SHA now — this is the commit being gated, regardless of
+whether a fix cycle occurred:
+
 ```bash
-RUN_ID=$(gh run list --branch "$HEAD_BRANCH" --repo "$REPO" \
-  -L 1 --json databaseId --jq '.[0].databaseId // ""' 2>/dev/null || true)
+CI_HEAD_SHA=$(gh pr view $PR_NUMBER --repo "$REPO" --json headRefOid --jq '.headRefOid')
+```
+
+CI may take a few seconds to trigger after a push. Poll until a run appears,
+then wait for it to complete:
+
+```bash
+RUN_ID=""
+for i in $(seq 1 6); do
+  RUN_ID=$(gh run list --branch "$HEAD_BRANCH" --repo "$REPO" \
+    -L 1 --json databaseId,headSha \
+    --jq --arg sha "$CI_HEAD_SHA" \
+    '[.[] | select(.headSha == $sha)] | .[0].databaseId // ""' 2>/dev/null || true)
+  [ -n "$RUN_ID" ] && break
+  sleep 5
+done
 
 if [ -z "$RUN_ID" ]; then
-  echo "No CI run found — skipping CI gate (no CI configured)."
-  CI_STATUS="none"
+  # No run after 30s — could be no CI, could be a trigger failure
+  HAS_WORKFLOWS=$(gh api "repos/$REPO/actions/workflows" \
+    --jq '.total_count // 0' 2>/dev/null || echo "0")
+  if [ "$HAS_WORKFLOWS" -gt 0 ]; then
+    # Workflows exist but no run triggered — surface to user before proceeding
+    AskUserQuestion("CI workflows exist in this repo but no run was triggered for $CI_HEAD_SHA after 30s. This may indicate a trigger failure or branch filter mismatch. Confirm CI status before I continue, or tell me to skip CI.")
+    CI_STATUS="user_confirmed"
+  else
+    echo "No CI workflows configured — skipping CI gate."
+    CI_STATUS="none"
+  fi
 else
   echo "Waiting for CI run #$RUN_ID..."
   if gh run watch "$RUN_ID" --repo "$REPO" --exit-status 2>/dev/null; then
@@ -197,9 +255,6 @@ else
   fi
 fi
 ```
-
-`CI_STATUS=none` means the repo has no CI — this is intentional and safe to proceed.
-If CI is expected but no run appears, surface that to the user before proceeding.
 
 | CI status | Action |
 |-----------|--------|
@@ -381,6 +436,6 @@ When `verdict` is `approved`, scripts reset `round` to 0.
 ## Success criteria
 
 - Full path: all acceptance criteria in the issue are met
-- Trivial path: the change matches the user's description
+- Trivial path: the change matches the dev agent's stated scope contract exactly
 - PR opened, reviewed by Codex, CI green, merged to `$BASE_BRANCH`
 - Zero manual handoffs required from the user (except confirmations)

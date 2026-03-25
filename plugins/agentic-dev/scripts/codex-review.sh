@@ -247,6 +247,8 @@ for cid in $PREV_COMMENT_IDS; do
 done
 echo ""
 echo "Codex verdict: $VERDICT_LINE"
+# Emit raw VERDICT line for review-agent parsing (grep '^VERDICT:')
+echo "$VERDICT_LINE"
 
 # Extract session ID for re-review (best-effort)
 # Codex prints "session id: <uuid>" in terminal output, not in the -o file.

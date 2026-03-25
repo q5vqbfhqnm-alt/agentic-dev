@@ -71,21 +71,22 @@ fi
 Only take the fast path if ALL of the following are true:
 
 1. `LAST_VERDICT` is `approved`
-2. An approval comment with the `<!-- agentic-dev:codex-review:v1 -->` marker exists on the PR
-3. That comment was posted **after** `$HEAD_PUSHED_AT` (i.e., the approval covers the current head)
+2. An approval comment with the `<!-- agentic-dev:codex-review:v1 reviewed-sha:HEAD_SHA -->` marker exists on the PR — the SHA embedded in the marker must equal the current `$HEAD_SHA`
+3. That comment contains `VERDICT: approved`
 
 ```bash
 APPROVAL_DATA=$(gh api "repos/$REPO/issues/$PR_NUMBER/comments" \
-  --jq '[.[] | select(.body | test("<!-- agentic-dev:codex-review:v1 -->")) | select(.body | test("VERDICT:.*approved"; "i"))] | last // empty')
+  --jq --arg sha "$HEAD_SHA" '[
+    .[]
+    | select(.body | test("<!-- agentic-dev:codex-review:v1 reviewed-sha:" + $sha))
+    | select(.body | test("VERDICT:.*approved"; "i"))
+  ] | last // empty')
 
-APPROVAL_TIME=$(echo "$APPROVAL_DATA" | jq -r '.updated_at // empty')
-
-if [ -n "$APPROVAL_TIME" ] && [[ "$APPROVAL_TIME" > "$HEAD_PUSHED_AT" ]]; then
-  # Approval post-dates the last push — safe to fast-path
+if [ -n "$APPROVAL_DATA" ] && [ "$(echo "$APPROVAL_DATA" | jq -r '.id // empty')" != "" ]; then
+  # Approval marker contains the exact current HEAD SHA — safe to fast-path
   VERDICT="approved"
-  # Skip to return format
 else
-  # No valid post-push approval — fall through to full review
+  # No SHA-matched approval — fall through to full review
   VERDICT=""
 fi
 ```
@@ -96,27 +97,56 @@ If `VERDICT=approved` from this check, skip Step 2 and go straight to the return
 
 ## Step 2: Run Codex review
 
-Choose the script based on `SESSION_PATH`:
+Choose the script based on `SESSION_PATH` and capture its output. Use a temp
+file for output capture — `$()` subshell exit codes are unreliable under
+`set -e`, but `|| SCRIPT_EXIT=$?` on a direct command is safe:
 
 ```bash
+_REVIEW_OUT=$(mktemp)
+SCRIPT_EXIT=0
+
 if [ "$ROUND" -eq 0 ]; then
-  # First review
   if [ "$SESSION_PATH" = "trivial" ]; then
-    bash "${CLAUDE_PLUGIN_ROOT}/scripts/codex-review-trivial.sh" "$PR_NUMBER"
+    bash "${CLAUDE_PLUGIN_ROOT}/scripts/codex-review-trivial.sh" "$PR_NUMBER" \
+      > "$_REVIEW_OUT" 2>&1 || SCRIPT_EXIT=$?
   else
-    bash "${CLAUDE_PLUGIN_ROOT}/scripts/codex-review.sh" "$PR_NUMBER"
+    bash "${CLAUDE_PLUGIN_ROOT}/scripts/codex-review.sh" "$PR_NUMBER" \
+      > "$_REVIEW_OUT" 2>&1 || SCRIPT_EXIT=$?
   fi
 else
-  # Re-review: resume the Codex session
-  bash "${CLAUDE_PLUGIN_ROOT}/scripts/codex-re-review.sh" "$PR_NUMBER" "$CODEX_SESSION_ID" "$ROUND"
+  bash "${CLAUDE_PLUGIN_ROOT}/scripts/codex-re-review.sh" "$PR_NUMBER" "$CODEX_SESSION_ID" "$ROUND" \
+    > "$_REVIEW_OUT" 2>&1 || SCRIPT_EXIT=$?
+fi
+
+SCRIPT_OUTPUT=$(cat "$_REVIEW_OUT")
+rm -f "$_REVIEW_OUT"
+
+if [ "$SCRIPT_EXIT" -ne 0 ]; then
+  # Script already posted a failure comment to the PR — report back to orchestrator
+  return "REVIEW_FAILED exit=$SCRIPT_EXIT output=$SCRIPT_OUTPUT"
 fi
 ```
 
-Extract `CODEX_SESSION_ID` from the script output for the orchestrator to store.
-
-Extract the `VERDICT` line from the script output:
+Extract `CODEX_SESSION_ID` from the captured output:
 ```bash
-VERDICT=$(grep -i '^VERDICT:' <script-output> | tail -1 | sed 's/^VERDICT:[[:space:]]*//' | tr '[:upper:]' '[:lower:]')
+CODEX_SESSION_ID=$(echo "$SCRIPT_OUTPUT" | grep '^CODEX_SESSION_ID=' | tail -1 | sed 's/^CODEX_SESSION_ID=//')
+```
+
+Extract the `VERDICT` — normalize to the enum value only, discarding the
+explanatory suffix the prompt format appends after `—`:
+```bash
+VERDICT=$(echo "$SCRIPT_OUTPUT" | grep -i '^VERDICT:' | tail -1 \
+  | sed 's/^VERDICT:[[:space:]]*//' \
+  | grep -oiE '^(approved|blocked)' \
+  | tr '[:upper:]' '[:lower:]')
+```
+
+Refresh `ROUND` from the session file the script just updated — the script
+may have advanced or reset it:
+```bash
+if [ -f "$SESSION_FILE" ]; then
+  ROUND=$(jq -r '.round // 0' "$SESSION_FILE")
+fi
 ```
 
 ---

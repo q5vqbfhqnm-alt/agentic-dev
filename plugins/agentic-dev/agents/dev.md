@@ -17,6 +17,9 @@ You receive from the orchestrator:
 - `SESSION_PATH` — `trivial` or `full`
 - `ISSUE_NUMBER` — the spec issue (full path only)
 - The user's original request (trivial path context)
+- `LOCALHOST_FEEDBACK` — (optional) `ok` to proceed to ship after localhost review,
+  or a description of what to fix. Only present on re-invocations after a
+  `LOCALHOST_REVIEW_READY` return.
 
 ---
 
@@ -51,10 +54,11 @@ git fetch origin "$AGENTIC_DEV_BASE_BRANCH"
 BRANCH_NAME="<type>/<short-name>"
 
 # 3. Create the worktree and branch in one command
-git worktree add -b "$BRANCH_NAME" "../worktrees/$BRANCH_NAME" "origin/$AGENTIC_DEV_BASE_BRANCH"
+WORKTREE_DIR="../worktrees/$BRANCH_NAME"
+git worktree add -b "$BRANCH_NAME" "$WORKTREE_DIR" "origin/$AGENTIC_DEV_BASE_BRANCH"
 
 # 4. Enter the worktree
-cd "../worktrees/$BRANCH_NAME"
+cd "$WORKTREE_DIR"
 ```
 
 If the branch name already exists (collision from a previous session), append
@@ -96,9 +100,10 @@ CHANGED=$(git diff --name-only "origin/$AGENTIC_DEV_BASE_BRANCH"...HEAD)
 **Default to `LOCALHOST_MODE = yes`** for anything that doesn't clearly match
 either list — a false positive is cheaper than shipping a broken UI.
 
-Tell the user your decision and the matching files. The user can override;
-apply any override for this session only. If no response, proceed with your
-detected value.
+Return your classification to the orchestrator before proceeding. Include the
+detected value and the matching files. If `LOCALHOST_FEEDBACK` is already
+present in the current invocation, skip detection — the orchestrator already
+made the decision.
 
 ### Step 2: If LOCALHOST_MODE = yes — run localhost review
 
@@ -125,23 +130,28 @@ done
 [ "$READY" -eq 0 ] && { echo "Dev server did not start within 60s"; kill $DEV_PID 2>/dev/null; exit 1; }
 ```
 
-Present the user with the changed files and the base URL. Do not attempt to
-map files to routes — list what changed and let the user navigate:
+Return to the orchestrator with the following message — do not wait inline:
 
-> Dev server running at http://localhost:$DEV_PORT (worktree: `$WORKTREE_DIR`)
->
-> Changed files:
-> `[list of changed UI files]`
->
-> Please verify the affected areas and reply **ok** when done,
-> or describe what needs to change.
+```
+LOCALHOST_REVIEW_READY
+url: http://localhost:$DEV_PORT
+worktree: $WORKTREE_DIR
+changed_files:
+  [list of changed UI files]
 
-**Stop and wait for user confirmation.** If the user reports an issue, fix
-it and re-present. Scope changes discovered here (changes that alter
-acceptance criteria) must be escalated to the orchestrator — do not update
-the GitHub Issue directly.
+Action required: ask the user to verify the affected areas and reply
+"ok" when done, or describe what needs to change.
+```
 
-Stop the server when done:
+The orchestrator surfaces this to the user and re-invokes the dev agent with
+either `LOCALHOST_FEEDBACK=ok` (proceed to ship) or `LOCALHOST_FEEDBACK=<issue>`
+(fix the reported issue and re-present).
+
+If `LOCALHOST_FEEDBACK` describes a scope change (alters acceptance criteria),
+escalate to the orchestrator instead of implementing it — see Mid-implementation
+escalation.
+
+Stop the server when the orchestrator signals done or on any error:
 ```bash
 kill $DEV_PID 2>/dev/null || true
 ```

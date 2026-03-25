@@ -70,11 +70,12 @@ trap 'rm -f "$REVIEW_OUTPUT" "$PROMPT_FILE" "$COMMENT_FILE"; if [ "$PRESERVE_COD
 
 # Build prompt — intentionally minimal. Two questions only.
 cat > "$PROMPT_FILE" <<PROMPT
-Review this pull request. It is a trivial change with small scope and no logic, schema, or auth impact.
+Review this pull request. It was classified as trivial (small scope, no logic/schema/auth impact) by the orchestrator.
 
-Answer exactly two questions:
-1. Correctness — does the diff do what the PR description says?
-2. Non-obvious breakage — could shared code, conditional rendering, CSS cascade, or import/export consumers break?
+Answer exactly three questions:
+1. Scope validation — does the diff match the trivial classification? If it touches logic, schema, auth, or shared infra, say so explicitly as a BLOCKER.
+2. Correctness — does the diff do what the PR description says?
+3. Non-obvious breakage — could shared code, conditional rendering, CSS cascade, or import/export consumers break?
 
 Rules:
 - BLOCKER and STRONG findings only.
@@ -85,10 +86,13 @@ Rules:
 
 Output exactly in this structure:
 
-### 1. Correctness
+### 1. Scope validation
 pass
 
-### 2. Non-obvious breakage
+### 2. Correctness
+pass
+
+### 3. Non-obvious breakage
 pass
 
 ### Verdict
@@ -176,6 +180,8 @@ done
 
 echo ""
 echo "Codex verdict: $VERDICT_LINE"
+# Emit raw VERDICT line for review-agent parsing (grep '^VERDICT:')
+echo "$VERDICT_LINE"
 
 # Extract session ID for re-review (best-effort)
 CODEX_SESSION_ID=$(sed $'s/\033\\[[0-9;]*m//g' "$CODEX_LOG" | grep -oE 'session id: [0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}' | head -1 | sed 's/session id: //' || true)

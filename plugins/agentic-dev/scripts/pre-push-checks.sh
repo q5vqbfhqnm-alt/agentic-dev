@@ -15,9 +15,10 @@ echo "=== Pre-push checks ==="
 
 # ── Validate required config ─────────────────────────────────────────────
 : "${AGENTIC_DEV_BASE_BRANCH:?config error: AGENTIC_DEV_BASE_BRANCH is not set}"
-: "${AGENTIC_DEV_TEST_CMD:?config error: AGENTIC_DEV_TEST_CMD is not set}"
-: "${AGENTIC_DEV_LINT_CMD:?config error: AGENTIC_DEV_LINT_CMD is not set}"
-: "${AGENTIC_DEV_BUILD_CMD:?config error: AGENTIC_DEV_BUILD_CMD is not set}"
+
+# Test, lint, and build commands are optional — repos may not have all three.
+# An empty or unset value means that check is not available in this repo and
+# will be skipped even if the path classification says it should run.
 
 # ── Verify diff base is available ────────────────────────────────────────
 BASE_REF="origin/$AGENTIC_DEV_BASE_BRANCH"
@@ -111,19 +112,31 @@ skip_step() {
 }
 
 if [ "$NEED_TEST" = true ]; then
-  run_step "1/3 Tests" "$AGENTIC_DEV_TEST_CMD" || true
+  if [ -n "${AGENTIC_DEV_TEST_CMD:-}" ]; then
+    run_step "1/3 Tests" "$AGENTIC_DEV_TEST_CMD" || true
+  else
+    skip_step "Tests" "AGENTIC_DEV_TEST_CMD not configured"
+  fi
 else
   skip_step "Tests" "no test-affecting files changed"
 fi
 
 if [ -z "$FAILED_STEP" ] && [ "$NEED_LINT" = true ]; then
-  run_step "2/3 Lint" "$AGENTIC_DEV_LINT_CMD" || true
+  if [ -n "${AGENTIC_DEV_LINT_CMD:-}" ]; then
+    run_step "2/3 Lint" "$AGENTIC_DEV_LINT_CMD" || true
+  else
+    skip_step "Lint" "AGENTIC_DEV_LINT_CMD not configured"
+  fi
 elif [ -z "$FAILED_STEP" ]; then
   skip_step "Lint" "no lintable files changed"
 fi
 
 if [ -z "$FAILED_STEP" ] && [ "$NEED_BUILD" = true ]; then
-  run_step "3/3 Build" "$AGENTIC_DEV_BUILD_CMD" || true
+  if [ -n "${AGENTIC_DEV_BUILD_CMD:-}" ]; then
+    run_step "3/3 Build" "$AGENTIC_DEV_BUILD_CMD" || true
+  else
+    skip_step "Build" "AGENTIC_DEV_BUILD_CMD not configured"
+  fi
 elif [ -z "$FAILED_STEP" ]; then
   skip_step "Build" "no build-affecting files changed"
 fi

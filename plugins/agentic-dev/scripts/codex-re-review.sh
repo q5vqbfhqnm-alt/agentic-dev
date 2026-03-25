@@ -111,8 +111,8 @@ cat > "$PROMPT_FILE" <<PROMPT
 Re-review this pull request.
 
 Your job now:
-1. Treat the latest linked issue as the authoritative spec — it supersedes prior-round assumptions.
-2. Verify each previous BLOCKER/STRONG finding is fixed against the latest spec. Mark as RESOLVED or STILL OPEN.
+1. Use the PR description as the authoritative spec. Linked issue(s) are supporting context only.
+2. Verify each previous BLOCKER/STRONG finding is fixed against the PR description. Mark as RESOLVED or STILL OPEN.
 3. You may raise NEW findings only if they are BLOCKER severity (would cause data loss, security breach, or runtime crash). Do NOT raise new STRONG or NICE findings — the scope of this review is to verify fixes, not to expand the review.
 
 Output exactly:
@@ -220,8 +220,8 @@ if [ ${#REVIEW_BODY} -gt 65000 ]; then
 ${VERDICT_LINE}"
 fi
 
-# Stamp with machine marker so merge-gate.sh can verify origin
-REVIEW_MARKER="<!-- agentic-dev:codex-review:v1 -->"
+# Stamp with machine marker (includes reviewed SHA for downstream binding)
+REVIEW_MARKER="<!-- agentic-dev:codex-review:v1 reviewed-sha:${REVIEWED_SHA} -->"
 REVIEW_BODY="${REVIEW_MARKER}
 ${REVIEW_BODY}"
 
@@ -240,6 +240,9 @@ for cid in $PREV_COMMENT_IDS; do
 done
 echo ""
 echo "Codex verdict: $VERDICT_LINE"
+# Emit raw VERDICT line for review-agent parsing (grep '^VERDICT:')
+echo "$VERDICT_LINE"
+echo "CODEX_SESSION_ID=${CODEX_SESSION_ID:-none}"
 
 # Persist session state to .git/agentic-dev/session-{branch}.json (best-effort).
 # Sanitize branch name: replace / with -- so fix/foo becomes session-fix--foo.json
