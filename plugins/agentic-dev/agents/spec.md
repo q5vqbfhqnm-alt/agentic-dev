@@ -108,9 +108,8 @@ See the Spike path section below.
 
 ## E2E
 
-The merge gate automatically determines whether to run the full E2E suite
-by checking which files the PR touches. No manual decision needed — do not
-include an E2E section in the issue.
+E2E runs as part of CI if configured in the consumer project. The orchestrator
+does not trigger or gate on E2E directly. Do not include an E2E section in the issue.
 
 ---
 

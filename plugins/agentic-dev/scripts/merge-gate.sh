@@ -3,17 +3,27 @@ set -euo pipefail
 #
 # Merge gate: anti-hallucination check.
 #
-# Verifies that a Codex review comment with VERDICT: approved exists on the PR
-# AND that the comment's reviewed-sha marker matches the current head commit SHA.
-# This prevents merging on a PR that has been modified since it was last reviewed.
+# Accepts either of two comment markers, both requiring a SHA match:
+#
+#   1. Codex approval    — agentic-dev:codex-review:v1 with VERDICT: approved
+#      Posted by the codex-review scripts after Codex clears the PR.
+#
+#   2. User override     — agentic-dev:user-override:v1
+#      Posted by the user running scripts/user-override.sh from their terminal.
+#      Never posted by any agent. Accepts responsibility for merging despite
+#      missing/blocked Codex approval.
+#
+# The model cannot post either marker directly — the no-self-review hook blocks
+# gh pr comment and direct API POSTs. The distinction matters for auditability:
+# a Codex approval means the guardrail was satisfied; a user override means the
+# user consciously assumed responsibility.
 #
 # Note on authenticity: verification is limited to comment body pattern matching
-# (marker + SHA). Any actor able to post a PR comment with the
-# agentic-dev:codex-review:v1 marker can satisfy this gate. The gate's primary
-# purpose is preventing the model from merging without having run the review
-# scripts at all — not preventing a determined adversary from spoofing a comment.
+# (marker + SHA). The gate's primary purpose is preventing the model from merging
+# without any review artifact at all — not preventing a determined adversary from
+# spoofing comments.
 #
-# Exits 0 if a valid SHA-matched approved comment is found, 1 otherwise.
+# Exits 0 if a valid SHA-matched approval or user-override comment is found, 1 otherwise.
 #
 # Usage:  scripts/merge-gate.sh <PR_NUMBER>
 
@@ -29,8 +39,8 @@ if [ -z "$HEAD_SHA" ]; then
   exit 1
 fi
 
-# Find an approval comment whose reviewed-sha marker matches the current HEAD.
-# The marker format is: <!-- agentic-dev:codex-review:v1 reviewed-sha:<SHA> -->
+# Path 1: Codex approval comment matching the current HEAD.
+# Marker format: <!-- agentic-dev:codex-review:v1 reviewed-sha:<SHA> -->
 APPROVAL=$(gh api "repos/$REPO/issues/$PR_NUMBER/comments" \
   --jq --arg sha "$HEAD_SHA" '
     [.[]
@@ -43,18 +53,34 @@ if [ -n "$APPROVAL" ]; then
   COMMENT_ID=$(echo "$APPROVAL" | jq -r '.id')
   echo "Codex review: approved (comment #$COMMENT_ID reviewed sha $HEAD_SHA)"
   exit 0
-else
-  # Distinguish between "no approval ever" and "approval for a different SHA"
-  ANY_APPROVAL=$(gh api "repos/$REPO/issues/$PR_NUMBER/comments" \
-    --jq '[.[] | select(.body | test("<!-- agentic-dev:codex-review:v1")) | select(.body | test("VERDICT:.*approved"; "i"))] | last // empty')
-
-  if [ -n "$ANY_APPROVAL" ]; then
-    STALE_SHA=$(echo "$ANY_APPROVAL" | jq -r '.body' \
-      | grep -oE 'reviewed-sha:[0-9a-f]{40}' | head -1 | sed 's/reviewed-sha://' || echo "unknown")
-    echo "Codex review: approval exists but for a different commit (approved sha $STALE_SHA, current sha $HEAD_SHA)"
-    echo "New commits were pushed after the review — re-review required"
-  else
-    echo "Codex review: no approved comment found — review has not been run"
-  fi
-  exit 1
 fi
+
+# Path 2: User override comment matching the current HEAD.
+# Marker format: <!-- agentic-dev:user-override:v1 reviewed-sha:<SHA> -->
+# Only reachable after the user runs scripts/user-override.sh from their terminal.
+USER_OVERRIDE=$(gh api "repos/$REPO/issues/$PR_NUMBER/comments" \
+  --jq --arg sha "$HEAD_SHA" '
+    [.[]
+      | select(.body | test("<!-- agentic-dev:user-override:v1 reviewed-sha:" + $sha))
+    ] | last // empty
+  ')
+
+if [ -n "$USER_OVERRIDE" ]; then
+  COMMENT_ID=$(echo "$USER_OVERRIDE" | jq -r '.id')
+  echo "Merge gate: user override accepted (comment #$COMMENT_ID reviewed sha $HEAD_SHA)"
+  exit 0
+fi
+
+# Neither path matched — distinguish for diagnostics
+ANY_CODEX=$(gh api "repos/$REPO/issues/$PR_NUMBER/comments" \
+  --jq '[.[] | select(.body | test("<!-- agentic-dev:codex-review:v1")) | select(.body | test("VERDICT:.*approved"; "i"))] | last // empty')
+
+if [ -n "$ANY_CODEX" ]; then
+  STALE_SHA=$(echo "$ANY_CODEX" | jq -r '.body' \
+    | grep -oE 'reviewed-sha:[0-9a-f]{40}' | head -1 | sed 's/reviewed-sha://' || echo "unknown")
+  echo "Codex review: approval exists but for a different commit (approved sha $STALE_SHA, current sha $HEAD_SHA)"
+  echo "New commits were pushed after the review — re-review required"
+else
+  echo "Codex review: no approved comment found — review has not been run"
+fi
+exit 1

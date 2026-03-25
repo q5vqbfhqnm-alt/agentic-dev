@@ -10,7 +10,7 @@
 #   4. Built-in default      (hardcoded below)
 #
 # The project config file is for project-identity settings (base branch,
-# CI workflow, paths, templates). Build/E2E commands are auto-detected
+# CI workflow, paths, templates). Build commands are auto-detected
 # from package.json — do NOT store them in .claude/agentic-dev.json.
 
 # ── Project config file ─────────────────────────────────────────────────────
@@ -27,7 +27,7 @@ _cfg() {
 
 # _detect_pkg_script <script-name> ...
 # Returns the first matching npm script name found in package.json, or empty.
-# Usage: CMD=$(_detect_pkg_script "test:e2e:full:local" "test:e2e" "e2e")
+# Usage: CMD=$(_detect_pkg_script "test" "lint" "build")
 _detect_pkg_script() {
   local pkg="${_AGENTIC_DEV_REPO_ROOT:+$_AGENTIC_DEV_REPO_ROOT/package.json}"
   [ -f "$pkg" ] || return 0
@@ -70,10 +70,6 @@ AGENTIC_DEV_BUILD_CMD="${AGENTIC_DEV_BUILD_CMD:-$(_detect_pkg_script "build")}"
 AGENTIC_DEV_INSTALL_CMD="${AGENTIC_DEV_INSTALL_CMD:-npm install}"
 AGENTIC_DEV_DEV_CMD="${AGENTIC_DEV_DEV_CMD:-$(_detect_pkg_script "dev")}"
 
-# E2E: probe for common script names in decreasing specificity; empty if absent
-AGENTIC_DEV_E2E_CMD="${AGENTIC_DEV_E2E_CMD:-$(_detect_pkg_script "test:e2e:full:local" "test:e2e:full" "test:e2e" "e2e")}"
-AGENTIC_DEV_E2E_SMOKE_CMD="${AGENTIC_DEV_E2E_SMOKE_CMD:-$(_detect_pkg_script "test:e2e:smoke" "e2e:smoke")}"
-
 AGENTIC_DEV_CHANGELOG_PATH="${AGENTIC_DEV_CHANGELOG_PATH:-$(_cfg changelogPath)}"
 AGENTIC_DEV_CHANGELOG_PATH="${AGENTIC_DEV_CHANGELOG_PATH:-$(_agentic_dev_default_changelog_path)}"
 
@@ -81,17 +77,8 @@ AGENTIC_DEV_CHANGELOG_PATH="${AGENTIC_DEV_CHANGELOG_PATH:-$(_agentic_dev_default
 AGENTIC_DEV_CI_WORKFLOW="${AGENTIC_DEV_CI_WORKFLOW:-$(_cfg ciWorkflow)}"
 AGENTIC_DEV_CI_WORKFLOW="${AGENTIC_DEV_CI_WORKFLOW:-}"
 AGENTIC_DEV_CI_PATHS="${AGENTIC_DEV_CI_PATHS:-$(_cfg ciPaths)}"
-AGENTIC_DEV_CI_PATHS="${AGENTIC_DEV_CI_PATHS:-src/ app/ e2e/ package.json tsconfig.json}"
-# E2E tier: "full" paths trigger the full E2E suite, "smoke" paths trigger a
-# lightweight smoke run, and anything else means no E2E.
-# Both are grep -E regexes matched against changed file paths.
-AGENTIC_DEV_E2E_FULL_PATHS="${AGENTIC_DEV_E2E_FULL_PATHS:-$(_cfg e2eFullPaths)}"
-AGENTIC_DEV_E2E_FULL_PATHS="${AGENTIC_DEV_E2E_FULL_PATHS:-^(app/api/|src/api/|app/lib/|src/lib/|e2e/|tests/e2e/|.*auth|.*payment|.*middleware)}"
-AGENTIC_DEV_E2E_SMOKE_PATHS="${AGENTIC_DEV_E2E_SMOKE_PATHS:-$(_cfg e2eSmokePaths)}"
-AGENTIC_DEV_E2E_SMOKE_PATHS="${AGENTIC_DEV_E2E_SMOKE_PATHS:-^(app/|src/|pages/|components/).*\.(tsx|jsx|ts|js)$}"
-# Legacy alias — still respected if the tiered paths aren't set
-AGENTIC_DEV_E2E_PATHS="${AGENTIC_DEV_E2E_PATHS:-$(_cfg e2ePaths)}"
-AGENTIC_DEV_E2E_PATHS="${AGENTIC_DEV_E2E_PATHS:-}"
+AGENTIC_DEV_CI_PATHS="${AGENTIC_DEV_CI_PATHS:-$(_cfg ciPaths)}"
+AGENTIC_DEV_CI_PATHS="${AGENTIC_DEV_CI_PATHS:-src/ app/ package.json tsconfig.json}"
 
 # ── Codex sandbox probe ─────────────────────────────────────────────────────
 # Returns the appropriate sandbox flag for the current environment.

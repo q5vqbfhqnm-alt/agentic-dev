@@ -179,6 +179,32 @@ The tool blocks until the user replies. Use the reply to decide the next step.
 
 ## Step 4: Codex Review
 
+### User override — available at any point
+
+A user override is triggered by the user running a terminal command directly —
+not by conversational phrasing. If the user asks to skip review or merge early,
+resolve the script path first, then present it:
+
+```bash
+OVERRIDE_SCRIPT="${CLAUDE_PLUGIN_ROOT}/scripts/user-override.sh"
+```
+
+Present the resolved literal path to the user:
+
+> "To override Codex review and authorise merge directly, run this in your terminal:
+> `bash <resolved OVERRIDE_SCRIPT> $PR_NUMBER`
+> Then tell me to proceed."
+
+Do not show the variable — show the actual path. Do not post the override comment
+yourself. Do not infer override intent from conversational language. Wait for the
+user to confirm they have run the script, then run the merge gate — if the marker
+comment exists, it will pass.
+
+**A user override skips Codex review only.** CI and rebase still run —
+they are objective checks, not review judgments, and are required regardless.
+
+---
+
 Read the session state file to check for a previous verdict:
 
 ```bash
@@ -205,10 +231,23 @@ The review agent returns:
 **After `CYCLE` reaches 3**, stop and use `AskUserQuestion`:
 
 > "Codex has blocked this PR [N] times. Outstanding findings: [summarised list].
-> Options: (1) abandon this PR, (2) describe a different approach for the dev agent."
+> Options:
+> (1) Abandon this PR.
+> (2) Describe a different approach for the dev agent to try.
+> (3) Merge under explicit user override — run `bash <resolved OVERRIDE_SCRIPT> $PR_NUMBER` in your terminal, then tell me to proceed."
 
-The user **cannot override a Codex verdict to force a merge**. The only options
-are to fix the code or abandon. This is enforced by the merge gate — see Step 6b.
+(Use the resolved literal value of `OVERRIDE_SCRIPT`, not the variable name.)
+
+The **model cannot override a Codex verdict**. If the user chooses option 3, wait
+for them to confirm they have run the script, then proceed to Step 5.
+CI and rebase still run — Codex review is the only step skipped.
+
+**At any cycle**, if the user requests an override, stop the loop immediately —
+do not wait for cycle 3. Present the resolved script path and wait:
+
+> "To override and proceed to merge, run `bash <resolved OVERRIDE_SCRIPT> $PR_NUMBER` in your terminal, then tell me to proceed."
+
+Once confirmed, skip directly to Step 5. CI and rebase still run.
 
 **For cycles 1–3:** classify each finding:
 
@@ -231,7 +270,10 @@ increment `CYCLE` → re-spawn **review agent** with `CODEX_SESSION_ID` for re-r
 
 ## Step 5: CI Gate
 
-After Codex review returns `approved`, wait for CI on the current HEAD.
+If the user says "override" at this step, clarify: the override skips Codex review
+only. CI is an objective check and is not skippable via override. Continue with CI.
+
+After Codex review returns `approved` (or a user override was accepted), wait for CI on the current HEAD.
 
 Resolve the head SHA now — this is the commit being gated, regardless of
 whether a fix cycle occurred:
@@ -286,6 +328,9 @@ fi
 ---
 
 ## Step 6: Pre-merge checks
+
+If the user says "override" at this step, clarify: the override skips Codex review
+only. Pre-merge checks (mergeability, rebase) are not skippable via override. Continue.
 
 ### Mergeability
 
@@ -348,17 +393,36 @@ gh pr diff $PR_NUMBER --repo "$REPO" 2>/dev/null \
 bash "${CLAUDE_PLUGIN_ROOT}/scripts/merge-gate.sh" $PR_NUMBER
 ```
 
-This verifies that a real Codex review comment with `VERDICT: approved` exists
-on the PR. It is a hard gate — if it fails, **do not merge**.
+This verifies that a real Codex review comment with `VERDICT: approved` exists on
+the PR, **or** a user-override comment for the same SHA. If neither exists, do not merge.
+
+### User override path
+
+The override comment is posted by the user running `scripts/user-override.sh`
+directly from their terminal — never by the orchestrator or any agent.
+
+When the gate is reached after a user override, run the gate normally:
+
+```bash
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/merge-gate.sh" $PR_NUMBER
+```
+
+The gate will find and accept the `agentic-dev:user-override:v1` marker posted
+by the user's terminal script and exit 0.
 
 If the gate fails, use `AskUserQuestion`:
 
 > "The merge gate cannot find an approved Codex review comment on PR #[N].
 > This may mean the review was not recorded correctly.
-> Options: (1) re-run the review agent, (2) abandon this PR."
+> Options:
+> (1) Re-run the review agent.
+> (2) Abandon this PR.
+> (3) Merge under explicit user override — run `bash <resolved OVERRIDE_SCRIPT> $PR_NUMBER` in your terminal, then tell me to proceed."
 
-Proceeding to merge when the gate fails is not an option. This enforces the
-invariant: **never merge without a recorded review approval**.
+(Use the resolved literal value of `OVERRIDE_SCRIPT`, not the variable name.)
+
+If the user chooses option 3, wait for them to confirm they have run the script,
+then re-run the gate. Do not proceed to merge until the gate passes.
 
 ---
 
@@ -455,8 +519,9 @@ When `verdict` is `approved`, scripts reset `round` to 0.
 - **Never write code yourself.** Only the dev agent writes code.
 - **Never create specs yourself.** Only the spec agent creates issues.
 - **Never skip the review step.** Even trivial PRs get a Codex review.
-- **Never override a Codex verdict.** Only the user can dismiss a subjective finding.
-- **Never merge without a recorded review approval.** The merge gate enforces this. There is no override path.
+- **Never override a Codex verdict as the model.** Only the user can dismiss a subjective finding or authorise a merge override.
+- **Never post the user-override comment yourself.** The override marker is posted exclusively by `scripts/user-override.sh`, run by the user in their terminal. Present the command and wait for confirmation — do not infer override intent from conversational language.
+- **Never merge without a recorded review artifact.** The merge gate requires either a Codex approval or a user-override comment, both SHA-matched. Do not proceed until the gate passes.
 
 ---
 
