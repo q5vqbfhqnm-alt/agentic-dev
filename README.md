@@ -149,10 +149,6 @@ The same model that wrote the code cannot review it. Enforced at three levels:
 
 Only the user can override a Codex verdict. This option is available at any point during PR review — before review starts, mid fix-review loop, or when the merge gate fails. To override, run `scripts/user-override.sh <PR_NUMBER>` directly from your terminal (the orchestrator will show the exact path). The script prompts for confirmation, then posts a distinct `agentic-dev:user-override:v1` marker that the merge gate accepts in place of Codex approval. CI and rebase still run; only the Codex review step is skipped.
 
-## Docs
-
-- [Template contract](docs/template-contract.md) — which PR/issue sections the pipeline depends on
-
 ## License
 
 All rights reserved.

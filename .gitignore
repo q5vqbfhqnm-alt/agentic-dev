@@ -1,6 +1,3 @@
-# Local test suite — not part of the plugin, used for development only
-tests/
-
 # Claude Code worktrees
 .claude/worktrees/
 
