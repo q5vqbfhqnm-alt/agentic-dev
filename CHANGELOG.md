@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.6.2 — 2026-03-25
+
+Workflow hardening — single CI gate, hook fixes, and config accuracy improvements.
+
+### Fix
+- Hooks hardening: config false-positive detection, localhost handshake reliability
+- Address review findings: contracts, parsing, and gate accuracy
+- Streamline workflow to a single CI gate with clearer role boundaries; remove unused `ci-watch.sh` and `cleanup-branches.sh` scripts
+
 ## 1.6.1 — 2026-03-25
 
 Fix Codex review scripts failing in container environments (bwrap unavailable).
