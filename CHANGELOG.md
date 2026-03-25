@@ -1,5 +1,18 @@
 # Changelog
 
+## 1.6.1 — 2026-03-25
+
+Fix Codex review scripts failing in container environments (bwrap unavailable).
+
+### Fix
+- Add `agentic_dev_codex_sandbox_args()` to `config.sh` — probes `codex sandbox linux` and returns `-s read-only` when bwrap is available, `--dangerously-bypass-approvals-and-sandbox` otherwise
+- `codex-review.sh` and `codex-review-trivial.sh` now source `config.sh` and use the probe result
+- `codex-re-review.sh` fresh-exec fallback path updated to use the probe result
+
+### Fix
+- Pre-create `~/.claude` with correct ownership so the volume initializes writable in devcontainers
+- Gitignore `settings.local.json` (container-specific, should not be committed)
+
 ## 1.6.0 — 2026-03-25
 
 Docker devcontainer and /release automation.
