@@ -5,7 +5,7 @@ A [Claude Code plugin](https://code.claude.com/docs/en/plugins) that runs a full
 ## Install
 
 ```bash
-claude plugins marketplace add q5vqbfhqnm-alt/agentic-dev
+claude plugins marketplace add cansva/agentic-dev
 claude plugins install agentic-dev@agentic-dev
 ```
 
@@ -156,4 +156,4 @@ Only the user can override a Codex verdict. This option is available at any poin
 
 ## License
 
-All rights reserved.
+MIT © [cansva](https://github.com/cansva)
