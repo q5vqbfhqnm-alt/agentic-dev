@@ -7,7 +7,7 @@ tools: Read, Grep, Glob, Bash
 # Review Agent
 
 Your only job is to run Codex review and return a verdict to the orchestrator.
-You do not check CI, run E2E, merge anything, or speak directly to the user.
+You do not check CI, merge anything, or speak directly to the user.
 All output goes back to the orchestrator.
 
 `gh` is assumed available — the orchestrator verified it at session start.

@@ -60,13 +60,13 @@ GitHub will pre-fill from it.
 - **Key decisions** — deviations from spec or ADR patterns
 - **Risky areas** — anything that could regress; affected call sites; shared components
 - **How to test** — exact commands or auth method
-- `- Added/Fixed/Changed/Removed: [what]` bullets (used for CHANGELOG)
+- `- Added/Fixed/Changed/Removed: [what]` bullets
 - `Closes #[issue-number]`
 
 ### Trivial path — required fields
 
 - **What changed** — 1-2 lines
-- `- Added/Fixed/Changed/Removed: [what]` bullets (used for CHANGELOG)
+- `- Added/Fixed/Changed/Removed: [what]` bullets
 
 Omit other sections or mark them N/A.
 

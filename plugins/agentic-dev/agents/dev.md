@@ -90,11 +90,13 @@ CHANGED=$(git diff --name-only "origin/$AGENTIC_DEV_BASE_BRANCH"...HEAD)
 - `.css`, `.scss`, `.module.css`, `.module.scss`
 - `app/**/page.tsx` or `pages/**/*.tsx` (routes)
 - `public/` (static assets)
+- Any file whose name matches a content-generating pattern regardless of directory:
+  `*email*`, `*template*`, `*mailer*`, `*notification*`, `*copy*`
 
 **Set `LOCALHOST_MODE = no`** only if ALL changed files fall into:
 - `app/api/`, `src/api/` (server routes)
 - `.env*`, `*.config.*`, `tsconfig.json`
-- `__tests__/`, `*.test.*`, `*.spec.*`, `e2e/`
+- `__tests__/`, `*.test.*`, `*.spec.*`
 - `.md`, `.sh`, `.github/`
 
 **Default to `LOCALHOST_MODE = yes`** for anything that doesn't clearly match

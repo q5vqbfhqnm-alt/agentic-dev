@@ -4,7 +4,7 @@
 # All scripts and hooks source this file to resolve configurable values.
 #
 # Resolution order (highest wins):
-#   1. Environment variable  (e.g. export AGENTIC_DEV_E2E_CMD="…")
+#   1. Environment variable  (e.g. export AGENTIC_DEV_TEST_CMD="…")
 #   2. Project config file   (.claude/agentic-dev.json in the repo root)
 #   3. Auto-detected from package.json scripts (build commands only)
 #   4. Built-in default      (hardcoded below)
@@ -39,20 +39,6 @@ _detect_pkg_script() {
   done
 }
 
-_agentic_dev_default_changelog_path() {
-  if [ -n "$_AGENTIC_DEV_REPO_ROOT" ]; then
-    if [ -f "$_AGENTIC_DEV_REPO_ROOT/docs/CHANGELOG.md" ]; then
-      echo "docs/CHANGELOG.md"
-      return
-    fi
-    if [ -f "$_AGENTIC_DEV_REPO_ROOT/CHANGELOG.md" ]; then
-      echo "CHANGELOG.md"
-      return
-    fi
-  fi
-  echo "CHANGELOG.md"
-}
-
 # ── Branch configuration ────────────────────────────────────────────────────
 AGENTIC_DEV_BASE_BRANCH="${AGENTIC_DEV_BASE_BRANCH:-$(_cfg baseBranch)}"
 AGENTIC_DEV_BASE_BRANCH="${AGENTIC_DEV_BASE_BRANCH:-preview}"
@@ -69,9 +55,6 @@ AGENTIC_DEV_LINT_CMD="${AGENTIC_DEV_LINT_CMD:-$(_detect_pkg_script "lint")}"
 AGENTIC_DEV_BUILD_CMD="${AGENTIC_DEV_BUILD_CMD:-$(_detect_pkg_script "build")}"
 AGENTIC_DEV_INSTALL_CMD="${AGENTIC_DEV_INSTALL_CMD:-npm install}"
 AGENTIC_DEV_DEV_CMD="${AGENTIC_DEV_DEV_CMD:-$(_detect_pkg_script "dev")}"
-
-AGENTIC_DEV_CHANGELOG_PATH="${AGENTIC_DEV_CHANGELOG_PATH:-$(_cfg changelogPath)}"
-AGENTIC_DEV_CHANGELOG_PATH="${AGENTIC_DEV_CHANGELOG_PATH:-$(_agentic_dev_default_changelog_path)}"
 
 # ── Path detection ──────────────────────────────────────────────────────────
 AGENTIC_DEV_CI_WORKFLOW="${AGENTIC_DEV_CI_WORKFLOW:-$(_cfg ciWorkflow)}"

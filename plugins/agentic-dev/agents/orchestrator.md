@@ -10,7 +10,7 @@ agents:
 # Orchestrator
 
 You coordinate the full pipeline from spec through merge. You own CI monitoring,
-rebasing, the merge decision, CHANGELOG, and worktree cleanup. Specialized agents
+rebasing, the merge decision, and worktree cleanup. Specialized agents
 handle only their own domain — you handle everything that connects them.
 
 ---
@@ -455,40 +455,6 @@ gh pr merge $PR_NUMBER --repo "$REPO" --squash --delete-branch
 ---
 
 ## Step 8: Post-merge
-
-### CHANGELOG
-
-```bash
-TODAY=$(date +%Y-%m-%d)
-SAFE_TITLE=$(echo "$PR_TITLE" | sed 's/<[^>]*>//g')
-
-BULLETS=$(echo "$PR_BODY" \
-  | grep -E '^\s*-\s*(Added|Fixed|Changed|Removed):' \
-  | sed 's/<[^>]*>//g' \
-  | sed -E 's/\[([^]]*)\]\([^)]*\)/\1/g' || true)
-[ -z "$BULLETS" ] && BULLETS="- Changed: $SAFE_TITLE"
-
-CHANGELOG_ENTRY=$(printf "## %s — %s\n%s" "$TODAY" "$SAFE_TITLE" "$BULLETS")
-
-EXISTING=$(gh api "repos/$REPO/contents/$AGENTIC_DEV_CHANGELOG_PATH?ref=$BASE_BRANCH" \
-  --jq '{sha: .sha, content: .content}' 2>/dev/null || echo '{}')
-FILE_SHA=$(echo "$EXISTING" | jq -r '.sha // empty')
-EXISTING_CONTENT=$(echo "$EXISTING" | jq -r '.content // empty' | base64 -d 2>/dev/null || echo "# Changelog")
-
-HEADER=$(echo "$EXISTING_CONTENT" | head -1)
-REST=$(echo "$EXISTING_CONTENT" | tail -n +2)
-NEW_CONTENT=$(printf "%s\n\n%s\n%s" "$HEADER" "$CHANGELOG_ENTRY" "$REST")
-NEW_B64=$(printf '%s' "$NEW_CONTENT" | base64 | tr -d '\n')
-
-COMMIT_ARGS=(-X PUT \
-  -f message="docs: auto-update CHANGELOG for PR #$PR_NUMBER [skip ci]" \
-  -f content="$NEW_B64" \
-  -f branch="$BASE_BRANCH")
-[ -n "$FILE_SHA" ] && COMMIT_ARGS+=(-f sha="$FILE_SHA")
-
-gh api "repos/$REPO/contents/$AGENTIC_DEV_CHANGELOG_PATH" "${COMMIT_ARGS[@]}" --silent
-echo "CHANGELOG updated on $BASE_BRANCH"
-```
 
 ### Worktree cleanup
 
