@@ -1,5 +1,19 @@
 # Changelog
 
+## 2.0.0 — 2026-04-01
+
+Lightweight handoff orchestrator — replaces automated pipeline with Claude Code + Codex plugin
+
+### Breaking changes
+- Removes dev agent, review agent, all Codex review scripts, hooks, and merge gate
+- Orchestrator no longer writes code or runs reviews autonomously
+- Requires the Codex plugin for Claude Code (`openai/codex-plugin-cc`) for review step
+
+### Changes
+- Orchestrator rewritten as a lightweight coordinator that generates handoff prompts for the user to run in their own Claude Code and Codex sessions
+- Spec agent rewritten using Linear format (50 lines, no templates or ADR scanning)
+- Removed: scripts/, skills/, hooks/, tests/, issue templates, PR template
+
 ## 1.8.0 — 2026-03-31
 
 Remove changelog ownership and E2E scope; fix localhost content detection
